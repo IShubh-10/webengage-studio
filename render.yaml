@@ -38,7 +38,10 @@ services:
       - key: SESSION_SECRET
         generateValue: true
 
-      # Internal redis:// URL, private to the Render network.
+      # Internal redis:// URL, private to the Render network. src/config/redis.js
+      # also carries this instance's internal URL as a production fallback, so a
+      # service created by hand rather than from this blueprint still finds it —
+      # this variable wins whenever it is set.
       - key: REDIS_URL
         fromService:
           type: keyvalue

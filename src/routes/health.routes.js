@@ -18,7 +18,10 @@ router.get('/health', (req, res) => {
     status: 'ok',
     uptime: process.uptime(),
     memory: process.memoryUsage(),
-    redis: redisState.connected ? 'connected' : 'disconnected',
+    // 'disabled' means no Redis was configured, so the miss is deliberate and
+    // the app is on its in-memory caches; 'disconnected' means one is configured
+    // and unreachable, which is worth paging about.
+    redis: redisState.enabled === false ? 'disabled' : redisState.connected ? 'connected' : 'disconnected',
     timestamp: new Date().toISOString(),
   });
 });

@@ -147,7 +147,8 @@ curl https://<service>.onrender.com/metrics
 
 | Symptom | Cause |
 | --- | --- |
-| `⚠️ Redis error: ... ECONNREFUSED` on repeat, app still serving | `REDIS_URL` unset or pointing at another region. The app runs on memory caches only — correct, but slower and with the three losses in the table above |
+| `⚠️ REDIS_URL is not set — running on in-memory caches only` once at boot, `/health` says `redis: disabled` | No Redis is configured on the service. The app runs on memory caches only — correct, but slower and with the three losses in the table above. Add `REDIS_URL` in Environment and redeploy |
+| `⚠️ Redis error: ... ECONNREFUSED` at boot, then once a minute with a suppressed count | A Redis **is** configured and unreachable — wrong region, an allow list, or the instance is gone. Repeats are throttled on purpose; the count tells you it is still failing |
 | `⚠️ Redis error: ... WRONGPASS` / `NOAUTH` | The external `rediss://` URL was copied without its password, or the internal one is being used from outside Render |
 | Redis fine, cache hit rate near zero | Each worker has its own memory cache; check the invalidation subscriber connected (`initInvalidation()` runs right after `initRedis()` in `src/server.js`) |
 | `ETIMEDOUT` connecting to MySQL | `DB_PORT` missing, so mysql2 used 3306 |

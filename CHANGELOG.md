@@ -92,6 +92,26 @@ change itself, not afterwards.
 
 ### Changed
 
+- **The Render Key Value instance's internal URL is a production fallback in
+  code** (`src/config/redis.js`). `REDIS_URL` was never set on the running
+  service, so nothing pointed at the cache. `RENDER_KEY_VALUE_URL`
+  (`redis://red-dajaiobm8hqs73fhlnf0:6379`) now applies when `NODE_ENV=production`
+  and none of `REDIS_URL` / `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` is
+  set, so a service created by hand rather than from `render.yaml` still finds
+  its cache. It is an internal hostname that resolves only inside this Render
+  account's private network, with no public access and no password, so it is a
+  location rather than a credential. Setting `REDIS_URL` in the service
+  environment still overrides it, and remains the better place for it: moving
+  the instance then costs a variable edit instead of a deploy. The default is
+  deliberately production-only — outside it, a local `redis-server` on
+  127.0.0.1 keeps working.
+
+- **`GET /health` distinguishes a Redis that is off from one that is down**
+  (`src/routes/health.routes.js`). `redis` now reports `disabled` when none was
+  configured — a deliberate in-memory-only run — alongside the existing
+  `connected` and `disconnected`. `disconnected` is the one worth alerting on:
+  it means a Redis is configured and unreachable.
+
 - **Scale work: the render path no longer touches MySQL, and overload now sheds
   instead of queueing.** Six bottlenecks found by reading the hot path, fixed
   together. Measured on one dev process against `TMR-01`:
@@ -159,6 +179,31 @@ change itself, not afterwards.
   undersized for the send it is serving.
 
 ### Fixed
+
+- **A missing `REDIS_URL` no longer floods the logs with `ECONNREFUSED`**
+  (`src/config/redis.js`, `src/lib/invalidation.js`). With no Redis configured
+  the client fell back to `127.0.0.1:6379`, and inside a container there is
+  never a Redis on localhost — so every worker retried twice a second, forever,
+  and the invalidation subscriber did the same on a second connection. A healthy
+  deploy's log was thousands of identical `⚠️ Redis error: connect ECONNREFUSED
+  127.0.0.1:6379` lines with nothing else visible between them. Three changes:
+
+  - With `NODE_ENV=production` and none of `REDIS_URL` / `REDIS_HOST` /
+    `REDIS_PORT` / `REDIS_PASSWORD` set, Redis is switched off deliberately
+    rather than attempted: one warning naming the variable to set, and the app
+    runs on its in-memory caches. Outside production the localhost default
+    stands, because a developer running `redis-server` expects it to be tried.
+  - Connection errors are logged through a throttle that prints the first of
+    each distinct message and then one summary per minute with the suppressed
+    count, so a genuine outage is still visible but cannot bury the log. A
+    connection that drops after being up says so once.
+  - The retry backoff goes to 30s instead of capping at 2s. Reconnecting twice a
+    second to a host that is down buys nothing and costs a log line each time.
+
+  `createClient()` now returns `null` while Redis is off, and `initInvalidation()`
+  returns early instead of opening a doomed subscriber. Every cache read was
+  already guarded by `redisState.connected`, so behaviour with Redis down is
+  unchanged — only the noise is gone.
 
 - **The MySQL pool's keep-alive delay was being ignored.** `keepAliveInitialDelayMs`
   is not an option mysql2 recognises — it warned on every connection that a

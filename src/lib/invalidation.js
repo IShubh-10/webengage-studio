@@ -15,7 +15,7 @@
 
 const crypto = require('crypto');
 
-const { createClient, state: redisState } = require('../config/redis');
+const { createClient, state: redisState, isEnabled, reportRedisIssue } = require('../config/redis');
 
 const CHANNEL = 'we-studio:invalidate';
 
@@ -65,11 +65,16 @@ function publishInvalidate(type, payload = {}) {
 function initInvalidation() {
   if (subscriber) return subscriber;
 
+  // No Redis means no channel to talk over. Opening the connection anyway only
+  // produces a second stream of connection errors next to the client's own.
+  if (!isEnabled()) return null;
+
   try {
     subscriber = createClient();
+    if (!subscriber) return null;
 
     subscriber.on('error', (err) => {
-      console.warn('⚠️ Invalidation subscriber error:', err.message);
+      reportRedisIssue('Invalidation subscriber error', err.message);
     });
 
     subscriber.on('message', (channel, raw) => {
