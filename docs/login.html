@@ -7,8 +7,8 @@
     <link rel="icon" type="image/png"
         href="https://afiles.webengage.com/76aba26/8dd7acac-b831-43c8-b1c1-e71673271986.avif" />
     <title>Sign in · Webengage Creative Studio</title>
-    <script src="/assets/origin.js"></script>
-    <link rel="stylesheet" href="/assets/theme.css" />
+    <script src="assets/origin.js"></script>
+    <link rel="stylesheet" href="assets/theme.css" />
     <style>
         body {
             min-height: 100vh;
@@ -698,7 +698,7 @@
 
         function nextDestination() {
             const next = new URLSearchParams(window.location.search).get('next');
-            return next && next.startsWith('/') ? next : '/tools';
+            return next && next.startsWith('/') ? next : 'tools.html';
         }
 
         async function loadAuthStatus() {

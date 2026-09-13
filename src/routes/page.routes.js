@@ -35,13 +35,13 @@ router.get('/timers', requireAuthPage, (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'timers.html'));
 });
 
-// Friendly aliases so tool cards can link by tool name
-router.get('/tools/dynamic-images', requireAuthPage, (req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
-});
+/*
+ * Friendly aliases so a tool can be linked by name. They redirect rather than
+ * serve: a page returned from a nested path would resolve its own relative
+ * asset URLs against /tools/, and the stylesheets would 404.
+ */
+router.get('/tools/dynamic-images', (req, res) => res.redirect('/studio'));
 
-router.get('/tools/countdown-timers', requireAuthPage, (req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, 'timers.html'));
-});
+router.get('/tools/countdown-timers', (req, res) => res.redirect('/timers'));
 
 module.exports = router;

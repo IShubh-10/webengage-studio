@@ -8,7 +8,9 @@ const path = require('path');
 const { ROOT_DIR } = require('./env');
 
 const PORT = process.env.PORT || 3000;
-const PUBLIC_DIR = path.join(ROOT_DIR, 'public');
+// GitHub Pages will only publish from a folder named exactly "docs", so the
+// front end lives there. This constant is the only place that name appears.
+const PUBLIC_DIR = path.join(ROOT_DIR, 'docs');
 
 // --- Process / cluster -------------------------------------------------------
 // How many workers this deployment runs. The master exports it into each fork

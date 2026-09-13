@@ -31,6 +31,22 @@ change itself, not afterwards.
 
 ### Fixed
 
+- **The front end is served again, and its stylesheets load on GitHub Pages.**
+  Two separate faults, both from the `public/` → `docs/` rename:
+
+  1. `PUBLIC_DIR` in `src/config/index.js` still resolved to `public/`, a folder
+     that no longer exists, so `express.static` had nothing to serve and every
+     page and asset on the Node deployment returned 404. It now points at
+     `docs/`, and that constant remains the only place the folder is named.
+  2. Every page linked its assets as `/assets/theme.css` — a leading slash,
+     meaning the domain root. On GitHub Pages the site lives under
+     `https://ishubh-10.github.io/webengage-studio/`, so the browser asked for
+     `https://ishubh-10.github.io/assets/theme.css` and got the 404 page;
+     `theme.css`, `shell.css`, `shell.js`, `origin.js` and `timers.js` all
+     failed together and the site rendered as unstyled HTML. Assets and
+     page-to-page links are now relative (`assets/theme.css`, `tools.html`), so
+     the same files work under any base path.
+
 - **Copyable links now point at the deployed service instead of `localhost`.**
   The render URL (`public/index.html`), the generated-URL preview
   (`public/index.html`) and the timer GIF embed (`public/assets/timers.js`) were
@@ -41,6 +57,21 @@ change itself, not afterwards.
 
 ### Architecture
 
+- **Pages link to each other by filename, and the server redirects to the
+  canonical path.** `docs/*.html` and `docs/assets/shell.js` now use
+  `tools.html`, `index.html`, `timers.html`, `admin.html` and `login.html`
+  instead of `/tools`, `/studio` and so on, because a relative link is the only
+  form that survives being served from a sub-path. `CANONICAL_PAGE_PATHS` in
+  `src/app.js` maps each filename back to its guarded route (`/tools.html` →
+  `/tools`), query string intact, so the pretty URLs stay canonical on the Node
+  deployment.
+
+- **No HTML page is served from a nested URL.** `/tools/dynamic-images` and
+  `/tools/countdown-timers` in `src/routes/page.routes.js` used to `sendFile`
+  the page directly; a page returned from a nested path resolves its relative
+  asset URLs against `/tools/`, which would put the stylesheets back at 404.
+  They redirect to `/studio` and `/timers` instead.
+
 - **One place knows the public origin:** `public/assets/origin.js`, which exports
   `PUBLIC_ORIGIN` (`https://webengage-studio.onrender.com`) and `publicUrl(path)`
   on `window`. It is loaded before every other script on all five pages. If the
@@ -48,6 +79,14 @@ change itself, not afterwards.
   `window.location.origin` for a URL a user is meant to paste elsewhere.
 
 ### Security
+
+- **Page filenames no longer bypass the session guards.** `express.static`
+  served `docs/admin.html`, `tools.html` and `timers.html` verbatim to anyone
+  who asked for the filename — only `/index.html` had a redirect in front of it —
+  so the admin UI shell was reachable without a session. The
+  `CANONICAL_PAGE_PATHS` redirects in `src/app.js` are registered before the
+  static middleware, so each filename is now routed through `requireAuthPage` or
+  `requireAdminPage`.
 
 - **`SESSION_SECRET` is now required in production.** It was optional, with a
   fallback written in `src/config/index.js` — so the key signing every login

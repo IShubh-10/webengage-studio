@@ -25,8 +25,28 @@ app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
 // Resolve the signed session cookie before anything is served (helpers in section 10.5)
 app.use(attachUserFromSession);
 
-// The studio SPA is reachable only through /studio, so direct hits get routed by auth state
-app.get('/index.html', (req, res) => res.redirect(req.user ? '/studio' : '/login'));
+/*
+ * Pages link to one another by filename, not by absolute path, so that the
+ * same files also work when served as a plain static site (GitHub Pages puts
+ * them under /webengage-studio/, where a leading "/" would escape the app).
+ * Here those filenames are redirected to their canonical, guarded paths, so a
+ * filename never bypasses the session checks in page.routes.js and never
+ * becomes the URL a user bookmarks. The query string is carried across.
+ */
+const CANONICAL_PAGE_PATHS = {
+  '/index.html': '/studio',
+  '/tools.html': '/tools',
+  '/timers.html': '/timers',
+  '/admin.html': '/admin',
+  '/login.html': '/login',
+};
+
+for (const [filename, canonical] of Object.entries(CANONICAL_PAGE_PATHS)) {
+  app.get(filename, (req, res) => {
+    const queryString = req.originalUrl.slice(req.path.length);
+    res.redirect(canonical + queryString);
+  });
+}
 
 // index: false so "/" is handled by the auth-aware route in section 12 instead of index.html
 app.use(express.static(PUBLIC_DIR, { index: false }));

@@ -55,29 +55,29 @@
        between a tool and its sections stays visible. */
     const NAV = [
         { type: 'label', label: 'Studio' },
-        { key: 'tools', label: 'All Tools', icon: 'grid', href: '/tools' },
+        { key: 'tools', label: 'All Tools', icon: 'grid', href: 'tools.html' },
         {
             key: 'studio',
             label: 'Dynamic Images',
             icon: 'image',
-            href: '/studio',
+            href: 'index.html',
             children: [
-                { key: 'studio', label: 'Studio Workspace', icon: 'layers', href: '/studio?view=studio' },
-                { key: 'templates', label: 'Templates Library', icon: 'library', href: '/studio?view=templates' },
+                { key: 'studio', label: 'Studio Workspace', icon: 'layers', href: 'index.html?view=studio' },
+                { key: 'templates', label: 'Templates Library', icon: 'library', href: 'index.html?view=templates' },
             ],
         },
         {
             key: 'timers',
             label: 'Countdown Timers',
             icon: 'clock',
-            href: '/timers',
+            href: 'timers.html',
             children: [
-                { key: 'builder', label: 'Timer Builder', icon: 'layers', href: '/timers?view=builder' },
-                { key: 'library', label: 'Timer Library', icon: 'library', href: '/timers?view=library' },
+                { key: 'builder', label: 'Timer Builder', icon: 'layers', href: 'timers.html?view=builder' },
+                { key: 'library', label: 'Timer Library', icon: 'library', href: 'timers.html?view=library' },
             ],
         },
         { type: 'label', label: 'Administration', adminOnly: true },
-        { key: 'admin', label: 'Members', icon: 'users', href: '/admin', adminOnly: true },
+        { key: 'admin', label: 'Members', icon: 'users', href: 'admin.html', adminOnly: true },
     ];
 
     function initials(name) {
@@ -95,11 +95,11 @@
         const response = await fetch(url, Object.assign({ credentials: 'same-origin' }, options || {}));
 
         if (response.status === 401) {
-            window.location.replace(`/login?next=${encodeURIComponent(window.location.pathname)}`);
+            window.location.replace(`login.html?next=${encodeURIComponent(window.location.pathname)}`);
             throw new Error('Session expired');
         }
         if (response.status === 403) {
-            window.location.replace('/tools');
+            window.location.replace('tools.html');
             throw new Error('Access removed');
         }
 
@@ -110,7 +110,7 @@
         try {
             await fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'same-origin' });
         } finally {
-            window.location.replace('/login');
+            window.location.replace('login.html');
         }
     }
 
@@ -126,7 +126,7 @@
         try {
             await fetch('/api/v1/auth/logout-all', { method: 'POST', credentials: 'same-origin' });
         } finally {
-            window.location.replace('/login');
+            window.location.replace('login.html');
         }
     }
 
