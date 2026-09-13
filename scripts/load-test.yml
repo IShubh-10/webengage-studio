@@ -1,0 +1,30 @@
+# Load profile for the public render endpoint.
+#
+#   npx artillery run scripts/load-test.yml
+#
+# One template, one fixed variable set, so every request resolves to the same
+# `render:WEB-01:<varHash>` key — this measures how fast the service can serve
+# a cached PNG, not how fast it can composite one. Vary the query string to
+# exercise the composite path instead.
+config:
+  target: "http://localhost:3000"
+  processor: "./load-test-processor.js"
+
+  phases:
+    - name: "ramp 10 to 500 arrivals/sec"
+      duration: 60
+      arrivalRate: 10
+      rampTo: 500
+
+  http:
+    # Large PNG responses need generous socket headroom; the default pool
+    # would queue rather than load the server.
+    pool: 1000
+    timeout: 30
+
+scenarios:
+  - name: "render WEB-01"
+    flow:
+      - get:
+          url: "/api/v1/render/WEB-01?city=enter_city&image=https://res.cloudinary.com/djoqxegkb/image/upload/v1784536947/hhfqihawgcaybacowjxf.png"
+          afterResponse: "recordCacheOutcome"

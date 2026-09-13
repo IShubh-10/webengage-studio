@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png"
+        href="https://afiles.webengage.com/76aba26/8dd7acac-b831-43c8-b1c1-e71673271986.avif" />
+    <title>Sign in · Webengage Creative Studio</title>
+    <link rel="stylesheet" href="/assets/theme.css" />
+    <style>
+        body {
+            min-height: 100vh;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+        }
+
+        /* ------------------------------------------------------- brand side */
+        .brand-pane {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 48px;
+            background: linear-gradient(155deg, #0154a5 0%, #013f7d 55%, #01294f 100%);
+            color: #ffffff;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand h1 {
+            font-family: fantasy;
+            font-size: 30px;
+            font-weight: bold;
+            letter-spacing: -0.3px;
+            color: #ffffff;
+        }
+
+        .brand h1>span {
+            color: #9dc3e6;
+            font-weight: 300;
+        }
+
+        .brand-mark {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.14);
+            font-size: 15px;
+            font-weight: 700;
+            background-image: url('https://afiles.webengage.com/76aba26/9c4899ea-820a-4b34-ba8f-e4067762b28d.avif');
+            background-size: contain;
+            color: transparent;
+        }
+
+        .brand-copy h2 {
+            max-width: 460px;
+            margin-bottom: 14px;
+            font-size: 34px;
+            font-weight: 700;
+            line-height: 1.25;
+        }
+
+        .brand-copy p {
+            max-width: 430px;
+            font-size: 15px;
+            line-height: 1.7;
+            color: #cbdcef;
+        }
+
+        .brand-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-top: 26px;
+        }
+
+        .brand-list li {
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            font-size: 14px;
+            color: #e2edf8;
+        }
+
+        .brand-list .tick {
+            width: 26px;
+            height: 26px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.16);
+        }
+
+        .brand-list code {
+            padding: 1px 5px;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.14);
+            font-size: 13px;
+        }
+
+        .brand-foot {
+            font-size: 12px;
+            color: #9dc3e6;
+        }
+
+        /* -------------------------------------------------------- auth side */
+        .auth-pane {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 24px;
+        }
+
+        .auth-card {
+            width: 100%;
+            max-width: 420px;
+            padding: 26px;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+        }
+
+        .auth-tabs {
+            display: flex;
+            margin: -26px -26px 24px;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--panel-alt);
+            border-radius: var(--radius) var(--radius) 0 0;
+            overflow: hidden;
+        }
+
+        .auth-tab {
+            flex: 1;
+            padding: 14px 10px;
+            border: none;
+            border-bottom: 2px solid transparent;
+            background: transparent;
+            color: var(--text-muted);
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+        }
+
+        .auth-tab:hover {
+            color: var(--primary);
+        }
+
+        .auth-tab.active {
+            background: var(--panel-bg);
+            border-bottom-color: var(--primary);
+            color: var(--primary);
+        }
+
+        .auth-head h3 {
+            font-size: 18px;
+            margin-bottom: 4px;
+        }
+
+        .auth-head p {
+            margin-bottom: 20px;
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--text-muted);
+        }
+
+        .form-group {
+            margin-bottom: 14px;
+        }
+
+        .field-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 0 8px 0 4px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            background: #ffffff;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .field-row:focus-within {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(1, 84, 165, 0.12);
+        }
+
+        .field-row .field-icon {
+            width: 28px;
+            height: 30px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-faint);
+        }
+
+        .field-row input {
+            flex: 1;
+            padding: 9px 0;
+            border: none;
+            border-radius: 0;
+            background: transparent;
+            text-indent: 10px;
+        }
+
+        .field-row input:focus {
+            border: none;
+            box-shadow: none;
+        }
+
+        .field-row .prefix {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+
+        .field-row .suffix-btn {
+            padding: 5px 8px;
+            border: none;
+            border-radius: 4px;
+            background: transparent;
+            color: var(--text-muted);
+            font-family: inherit;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            cursor: pointer;
+        }
+
+        .field-row .suffix-btn:hover {
+            color: var(--primary);
+        }
+
+        .hint {
+            margin-top: 6px;
+            font-size: 11.5px;
+            line-height: 1.5;
+            color: var(--text-faint);
+        }
+
+        .alert {
+            display: none;
+            gap: 8px;
+            margin-bottom: 16px;
+            padding: 10px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .alert.show {
+            display: flex;
+        }
+
+        .alert.error {
+            background: var(--danger-wash);
+            border-color: var(--danger-border);
+            color: var(--danger);
+        }
+
+        .alert.success {
+            background: var(--ok-wash);
+            border-color: var(--ok-border);
+            color: var(--ok);
+        }
+
+        .alert.info {
+            background: #eff6ff;
+            border-color: #bfdbfe;
+            color: #1e40af;
+        }
+
+        .switch-line {
+            margin-top: 18px;
+            text-align: center;
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .switch-line button {
+            border: none;
+            background: none;
+            color: var(--primary);
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .switch-line button:hover {
+            text-decoration: underline;
+        }
+
+        /* --------------------------------------------------------- otp step */
+        .otp-target {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 18px;
+            padding: 12px 14px;
+            background: var(--panel-alt);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+        }
+
+        .otp-target .label {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+
+        .otp-target .value {
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .otp-inputs {
+            display: flex;
+            gap: 10px;
+        }
+
+        .otp-inputs input {
+            width: 100%;
+            height: 54px;
+            padding: 0;
+            text-align: center;
+            font-size: 21px;
+            font-weight: 700;
+        }
+
+        .otp-foot {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin: 12px 0 16px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .otp-foot button {
+            border: none;
+            background: none;
+            color: var(--primary);
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .otp-foot button:disabled {
+            color: var(--text-faint);
+            cursor: not-allowed;
+        }
+
+        @media (max-width: 980px) {
+            body {
+                grid-template-columns: 1fr;
+            }
+
+            .brand-pane {
+                padding: 26px 24px;
+            }
+
+            .brand-copy,
+            .brand-foot {
+                display: none;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Brand side -->
+    <div class="brand-pane">
+        <div class="brand">
+            <span class="brand-mark">WS</span>
+            <h1>Webengage<span>Studio</span></h1>
+        </div>
+
+        <div class="brand-copy">
+            <h2>One workspace for every creative tool.</h2>
+            <p>Sign in to reach the studio toolkit — build a template once and render personalised creatives on the
+                fly.</p>
+            <ul class="brand-list">
+                <li><span class="tick" data-icon="image"></span> Dynamic Images with a live template preview</li>
+                <li><span class="tick" data-icon="link"></span> Reusable placeholders like <code>{{firstName}}</code></li>
+                <li><span class="tick" data-icon="library"></span> A shared template library for the whole team</li>
+            </ul>
+        </div>
+
+        <div class="brand-foot">Webengage Creative Studio · internal tool</div>
+    </div>
+
+    <!-- Auth side -->
+    <div class="auth-pane">
+        <div class="auth-card">
+            <div class="auth-tabs">
+                <button class="auth-tab active" id="tabLogin" type="button">Sign in</button>
+                <button class="auth-tab" id="tabRegister" type="button">Register</button>
+            </div>
+
+            <div id="alert" class="alert"></div>
+
+            <!-- Sign in ------------------------------------------------->
+            <form id="loginForm">
+                <div class="auth-head">
+                    <h3>Welcome back</h3>
+                    <p>Use your studio account to continue.</p>
+                </div>
+
+                <div class="form-group">
+                    <label for="loginEmail">Work email</label>
+                    <div class="field-row">
+                        <span class="field-icon" data-icon="mail"></span>
+                        <input type="email" id="loginEmail" autocomplete="email" placeholder="you@webengage.com"
+                            required />
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="loginPassword">Password</label>
+                    <div class="field-row">
+                        <span class="field-icon" data-icon="lock"></span>
+                        <input type="password" id="loginPassword" autocomplete="current-password"
+                            placeholder="Enter your password" required />
+                        <button type="button" class="suffix-btn" data-toggle="loginPassword">Show</button>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn primary block" id="loginSubmit">Sign in</button>
+
+                <div class="switch-line">New member? <button type="button" id="goRegister">Create an
+                        account</button></div>
+            </form>
+
+            <!-- Register, step 1: details ------------------------------->
+            <form id="registerForm" style="display: none;">
+                <div class="auth-head">
+                    <h3 id="registerHeading">Create your account</h3>
+                    <p id="registerSub">We text a 4 digit code to verify your mobile number.</p>
+                </div>
+
+                <div class="form-group">
+                    <label for="regName">Full name</label>
+                    <div class="field-row">
+                        <span class="field-icon" data-icon="user"></span>
+                        <input type="text" id="regName" autocomplete="name" placeholder="Your name" required />
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="regEmail">Work email</label>
+                    <div class="field-row">
+                        <span class="field-icon" data-icon="mail"></span>
+                        <input type="email" id="regEmail" autocomplete="email" placeholder="you@webengage.com"
+                            required />
+                    </div>
+                    <div class="hint" id="domainHint" style="display: none;"></div>
+                </div>
+
+                <div class="form-group">
+                    <label for="regPhone">Mobile number</label>
+                    <div class="field-row">
+                        <span class="field-icon" data-icon="phone"></span>
+                        <span class="prefix">+91</span>
+                        <input type="tel" id="regPhone" inputmode="numeric" autocomplete="tel-national"
+                            maxlength="10" placeholder="10 digit number" required />
+                    </div>
+                    <div class="hint">Indian mobile number, 10 digits, no country code.</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="regPassword">Password</label>
+                    <div class="field-row">
+                        <span class="field-icon" data-icon="lock"></span>
+                        <input type="password" id="regPassword" autocomplete="new-password"
+                            placeholder="At least 8 characters" required />
+                        <button type="button" class="suffix-btn" data-toggle="regPassword">Show</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="regConfirm">Confirm password</label>
+                    <div class="field-row">
+                        <span class="field-icon" data-icon="lock"></span>
+                        <input type="password" id="regConfirm" autocomplete="new-password"
+                            placeholder="Repeat your password" required />
+                    </div>
+                </div>
+
+                <button type="submit" class="btn primary block" id="registerSubmit">Send verification code</button>
+
+                <div class="switch-line">Already a member? <button type="button" id="goLogin">Sign in
+                        instead</button></div>
+            </form>
+
+            <!-- Register, step 2: verify -------------------------------->
+            <form id="otpForm" style="display: none;">
+                <div class="auth-head">
+                    <h3>Verify your mobile</h3>
+                    <p>Enter the 4 digit code we texted you. It expires in 5 minutes.</p>
+                </div>
+
+                <div class="otp-target">
+                    <div>
+                        <div class="label">Code sent to</div>
+                        <div class="value" id="otpPhone">+91 ••••••</div>
+                    </div>
+                    <button type="button" class="btn small" id="editDetails">Change</button>
+                </div>
+
+                <div class="otp-inputs" id="otpInputs">
+                    <input type="text" inputmode="numeric" maxlength="1" aria-label="Digit 1" />
+                    <input type="text" inputmode="numeric" maxlength="1" aria-label="Digit 2" />
+                    <input type="text" inputmode="numeric" maxlength="1" aria-label="Digit 3" />
+                    <input type="text" inputmode="numeric" maxlength="1" aria-label="Digit 4" />
+                </div>
+
+                <div class="otp-foot">
+                    <span id="resendState">Code sent</span>
+                    <button type="button" id="resendBtn" disabled>Resend code</button>
+                </div>
+
+                <button type="submit" class="btn primary block" id="otpSubmit">Verify and create account</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        /* ------------------------------------------------------------ icons */
+        const ICONS = {
+            mail: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.8 6.8 12 12.6l8.2-5.8"/>',
+            lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>',
+            user: '<circle cx="12" cy="8" r="3.6"/><path d="M4.8 20a7.2 7.2 0 0 1 14.4 0"/>',
+            phone: '<rect x="6.5" y="2.8" width="11" height="18.4" rx="2.6"/><path d="M10.6 18.4h2.8"/>',
+            image: '<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><circle cx="8.5" cy="10" r="1.6"/><path d="M3.5 17l4.8-4.2a2 2 0 0 1 2.6 0L20 19"/>',
+            library: '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H9v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M9 4h5.5A1.5 1.5 0 0 1 16 5.5v13A1.5 1.5 0 0 1 14.5 20H9z"/><path d="M17.5 5.2l2 .5a1.5 1.5 0 0 1 1 1.8l-2.6 11.2"/>',
+            link: '<path d="M10.5 13.5a3.5 3.5 0 0 0 5 0l2.8-2.8a3.5 3.5 0 0 0-5-5L12 7"/><path d="M13.5 10.5a3.5 3.5 0 0 0-5 0L5.7 13.3a3.5 3.5 0 0 0 5 5L12 17"/>',
+        };
+
+        document.querySelectorAll('[data-icon]').forEach((el) => {
+            el.innerHTML = `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${ICONS[el.dataset.icon] || ''}</svg>`;
+        });
+
+        /* ------------------------------------------------------- elements */
+        const alertBox = document.getElementById('alert');
+        const tabLogin = document.getElementById('tabLogin');
+        const tabRegister = document.getElementById('tabRegister');
+        const loginForm = document.getElementById('loginForm');
+        const registerForm = document.getElementById('registerForm');
+        const otpForm = document.getElementById('otpForm');
+        const phoneInput = document.getElementById('regPhone');
+        const otpInputs = Array.from(document.querySelectorAll('#otpInputs input'));
+
+        // Details captured in step 1, submitted together with the code in step 2
+        let pending = null;
+        let resendTimer = null;
+
+        function showAlert(message, type) {
+            alertBox.textContent = message;
+            alertBox.className = `alert show ${type || 'info'}`;
+        }
+
+        function clearAlert() {
+            alertBox.className = 'alert';
+        }
+
+        function showStep(step) {
+            loginForm.style.display = step === 'login' ? 'block' : 'none';
+            registerForm.style.display = step === 'register' ? 'block' : 'none';
+            otpForm.style.display = step === 'otp' ? 'block' : 'none';
+
+            tabLogin.classList.toggle('active', step === 'login');
+            tabRegister.classList.toggle('active', step !== 'login');
+        }
+
+        function switchMode(mode) {
+            clearAlert();
+            showStep(mode);
+        }
+
+        tabLogin.addEventListener('click', () => switchMode('login'));
+        tabRegister.addEventListener('click', () => switchMode('register'));
+        document.getElementById('goRegister').addEventListener('click', () => switchMode('register'));
+        document.getElementById('goLogin').addEventListener('click', () => switchMode('login'));
+        document.getElementById('editDetails').addEventListener('click', () => switchMode('register'));
+
+        document.querySelectorAll('[data-toggle]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const input = document.getElementById(button.dataset.toggle);
+                const reveal = input.type === 'password';
+                input.type = reveal ? 'text' : 'password';
+                button.textContent = reveal ? 'Hide' : 'Show';
+            });
+        });
+
+        /* --------------------------------------------------- phone input */
+
+        // Digits only, capped at 10 — paste and keystrokes both get cleaned
+        phoneInput.addEventListener('input', () => {
+            const cleaned = phoneInput.value.replace(/\D/g, '').slice(0, 10);
+            if (cleaned !== phoneInput.value) phoneInput.value = cleaned;
+        });
+
+        function validPhone(value) {
+            return /^\d{10}$/.test(value);
+        }
+
+        /* ----------------------------------------------------- otp inputs */
+
+        otpInputs.forEach((input, index) => {
+            input.addEventListener('input', () => {
+                input.value = input.value.replace(/\D/g, '').slice(0, 1);
+                if (input.value && index < otpInputs.length - 1) otpInputs[index + 1].focus();
+            });
+
+            input.addEventListener('keydown', (event) => {
+                if (event.key === 'Backspace' && !input.value && index > 0) otpInputs[index - 1].focus();
+                if (event.key === 'ArrowLeft' && index > 0) otpInputs[index - 1].focus();
+                if (event.key === 'ArrowRight' && index < otpInputs.length - 1) otpInputs[index + 1].focus();
+            });
+
+            // Pasting the whole code fills every box
+            input.addEventListener('paste', (event) => {
+                const digits = (event.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '');
+                if (!digits) return;
+                event.preventDefault();
+                otpInputs.forEach((box, i) => { box.value = digits[i] || ''; });
+                otpInputs[Math.min(digits.length, otpInputs.length) - 1].focus();
+            });
+        });
+
+        function otpValue() {
+            return otpInputs.map((input) => input.value).join('');
+        }
+
+        function clearOtp() {
+            otpInputs.forEach((input) => { input.value = ''; });
+            otpInputs[0].focus();
+        }
+
+        function startResendCountdown(seconds) {
+            const button = document.getElementById('resendBtn');
+            const state = document.getElementById('resendState');
+            let left = seconds;
+
+            button.disabled = true;
+            clearInterval(resendTimer);
+
+            const tick = () => {
+                state.textContent = left > 0 ? `You can resend in ${left}s` : 'Did not get the code?';
+                if (left <= 0) {
+                    button.disabled = false;
+                    clearInterval(resendTimer);
+                }
+                left -= 1;
+            };
+
+            tick();
+            resendTimer = setInterval(tick, 1000);
+        }
+
+        /* ----------------------------------------------------------- api */
+
+        async function postJson(url, payload) {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify(payload),
+            });
+
+            let data = {};
+            try { data = await response.json(); } catch (err) { /* non-JSON error page */ }
+            return { ok: response.ok, data };
+        }
+
+        function nextDestination() {
+            const next = new URLSearchParams(window.location.search).get('next');
+            return next && next.startsWith('/') ? next : '/tools';
+        }
+
+        async function loadAuthStatus() {
+            try {
+                const response = await fetch('/api/v1/auth/status', { credentials: 'same-origin' });
+                if (!response.ok) return;
+                const data = await response.json();
+
+                if (data.allowedEmailDomain) {
+                    const hint = document.getElementById('domainHint');
+                    hint.textContent = `Only @${data.allowedEmailDomain} addresses can register.`;
+                    hint.style.display = 'block';
+                }
+
+                if (!data.hasUsers) {
+                    switchMode('register');
+                    document.getElementById('registerHeading').textContent = 'Create the admin account';
+                    document.getElementById('registerSub').textContent =
+                        'No accounts exist yet — this first account becomes the studio admin.';
+                    showAlert('First-time setup: the account you create now will be the admin.', 'info');
+                }
+            } catch (err) {
+                /* status is a nicety — the forms still work without it */
+            }
+        }
+
+        /* --------------------------------------------------------- step 1 */
+
+        async function requestCode(isResend) {
+            const button = isResend ? document.getElementById('resendBtn') : document.getElementById('registerSubmit');
+            const label = button.textContent;
+            button.disabled = true;
+            button.textContent = 'Sending…';
+
+            const { ok, data } = await postJson('/api/v1/auth/otp/send', {
+                name: pending.name,
+                email: pending.email,
+                phone: pending.phone,
+            });
+
+            button.textContent = label;
+            button.disabled = false;
+
+            if (!ok) {
+                showAlert(data.error || 'Could not send the code. Please try again.', 'error');
+                if (!isResend) switchMode('register');
+                return false;
+            }
+
+            document.getElementById('otpPhone').textContent = data.phone;
+            startResendCountdown(data.resendIn || 30);
+            clearOtp();
+
+            if (data.delivered) {
+                showAlert(`Code sent to ${data.phone}.`, 'success');
+            } else {
+                // Usually a missing WEBENGAGE_API_KEY in local development
+                showAlert(`${data.note || 'SMS delivery is not configured'} — check the server log for the code.`, 'info');
+            }
+
+            return true;
+        }
+
+        registerForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            clearAlert();
+
+            const name = document.getElementById('regName').value.trim();
+            const email = document.getElementById('regEmail').value.trim();
+            const phone = document.getElementById('regPhone').value.trim();
+            const password = document.getElementById('regPassword').value;
+            const confirm = document.getElementById('regConfirm').value;
+
+            if (name.length < 2) return showAlert('Please enter your full name.', 'error');
+            if (!validPhone(phone)) return showAlert('Enter a 10 digit mobile number.', 'error');
+            if (password.length < 8) return showAlert('Password must be at least 8 characters.', 'error');
+            if (password !== confirm) return showAlert('Passwords do not match.', 'error');
+
+            pending = { name, email, phone, password };
+
+            if (await requestCode(false)) showStep('otp');
+        });
+
+        document.getElementById('resendBtn').addEventListener('click', () => {
+            if (pending) requestCode(true);
+        });
+
+        /* --------------------------------------------------------- step 2 */
+
+        otpForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            clearAlert();
+
+            const code = otpValue();
+            if (!/^\d{4}$/.test(code)) return showAlert('Enter the 4 digit code.', 'error');
+
+            const button = document.getElementById('otpSubmit');
+            button.disabled = true;
+            button.textContent = 'Verifying…';
+
+            const { ok, data } = await postJson('/api/v1/auth/register', Object.assign({ otp: code }, pending));
+
+            if (ok) {
+                showAlert('Account created — taking you to the studio…', 'success');
+                window.location.href = nextDestination();
+                return;
+            }
+
+            button.disabled = false;
+            button.textContent = 'Verify and create account';
+            showAlert(data.error || 'Could not create the account. Please try again.', 'error');
+            clearOtp();
+        });
+
+        /* ---------------------------------------------------------- login */
+
+        loginForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            clearAlert();
+
+            const button = document.getElementById('loginSubmit');
+            button.disabled = true;
+            button.textContent = 'Signing in…';
+
+            const { ok, data } = await postJson('/api/v1/auth/login', {
+                email: document.getElementById('loginEmail').value.trim(),
+                password: document.getElementById('loginPassword').value,
+            });
+
+            if (ok) {
+                window.location.href = nextDestination();
+                return;
+            }
+
+            showAlert(data.error || 'Could not sign in. Please try again.', 'error');
+            button.disabled = false;
+            button.textContent = 'Sign in';
+        });
+
+        loadAuthStatus();
+    </script>
+</body>
+
+</html>

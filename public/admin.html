@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png"
+        href="https://afiles.webengage.com/76aba26/9c4899ea-820a-4b34-ba8f-e4067762b28d.avif" />
+    <title>Admin · Webengage Creative Studio</title>
+    <link rel="stylesheet" href="/assets/theme.css" />
+    <link rel="stylesheet" href="/assets/shell.css" />
+    <style>
+        main {
+            padding: 24px 24px 48px;
+            max-width: 100%;
+        }
+
+        .page-head {
+            margin-bottom: 22px;
+        }
+
+        .page-head h2 {
+            font-size: 24px;
+            margin-bottom: 6px;
+        }
+
+        .page-head p {
+            font-size: 13.5px;
+            color: var(--text-muted);
+        }
+
+        .alert {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 16px;
+            padding: 10px 13px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+        }
+
+        .alert.show {
+            display: flex;
+        }
+
+        .alert.error {
+            background: var(--danger-wash);
+            border-color: var(--danger-border);
+            color: var(--danger);
+        }
+
+        .alert.success {
+            background: var(--ok-wash);
+            border-color: var(--ok-border);
+            color: var(--ok);
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: 14px;
+            margin-bottom: 24px;
+        }
+
+        .stat {
+            padding: 16px 18px;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-card);
+        }
+
+        .stat-label {
+            margin-bottom: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+
+        .stat-value {
+            font-size: 26px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .panel {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-card);
+            overflow: hidden;
+        }
+
+        .panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 16px;
+            background: var(--panel-alt);
+            border-bottom: 1px solid var(--border-color);
+            font-size: 14px;
+            font-weight: 600;
+            color: #334155;
+        }
+
+        .table-scroll {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        th,
+        td {
+            padding: 11px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+            white-space: nowrap;
+        }
+
+        th {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+
+        tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        tbody tr:hover td {
+            background: var(--panel-alt);
+        }
+
+        .person {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .person-name {
+            font-weight: 600;
+        }
+
+        .you-tag {
+            margin-left: 6px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: var(--primary-wash);
+            color: var(--primary);
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .muted {
+            color: var(--text-muted);
+        }
+
+        .actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .note {
+            margin-top: 16px;
+            font-size: 12px;
+            line-height: 1.7;
+            color: var(--text-muted);
+        }
+
+        .note strong {
+            color: var(--text-main);
+            font-weight: 600;
+        }
+    </style>
+    <script>
+        window.STUDIO_SHELL = { active: 'admin', section: 'members' };
+    </script>
+</head>
+
+<body>
+    <div class="app-shell">
+
+        <!-- Nav bar: logo and profile only — navigation lives in the profile menu -->
+        <header class="topnav">
+            <a class="brand" href="/tools">
+                <h1>Webengage<span>Studio</span></h1>
+            </a>
+            <div class="nav-right">
+                <div id="shellUser"></div>
+            </div>
+        </header>
+
+        <div class="app-content">
+            <main>
+                    <div class="page-head">
+                        <h2>Members</h2>
+                        <p>Everyone with a Webengage Studio account. Admins can promote, demote and remove members.</p>
+                    </div>
+
+                    <div id="alert" class="alert"></div>
+
+                    <div class="stats">
+                        <div class="stat">
+                            <div class="stat-label">Total accounts</div>
+                            <div class="stat-value" id="statTotal">–</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-label">Admins</div>
+                            <div class="stat-value" id="statAdmins">–</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-label">Members</div>
+                            <div class="stat-value" id="statMembers">–</div>
+                        </div>
+                    </div>
+
+                    <div class="panel">
+                        <div class="panel-header">
+                            <span>Accounts</span>
+                            <button class="btn small" id="refreshBtn" type="button">
+                                <span id="iconRefresh"></span> Refresh
+                            </button>
+                        </div>
+                        <div class="table-scroll">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Member</th>
+                                        <th>Email</th>
+                                        <th>Mobile</th>
+                                        <th>Role</th>
+                                        <th>Joined</th>
+                                        <th>Last login</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="membersBody">
+                                    <tr class="empty">
+                                        <td colspan="7">Loading members…</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <p class="note">
+                        Accounts live in the <strong>users</strong> table of the <strong>personalize_studio</strong>
+                        MySQL database. Passwords are stored only as scrypt digests, so they can never be read back
+                        here — a member who forgets one needs a new account, or a password reset run directly against
+                        the database.
+                    </p>
+            </main>
+        </div>
+    </div>
+
+    <script src="/assets/shell.js"></script>
+    <script>
+        const alertBox = document.getElementById('alert');
+        const membersBody = document.getElementById('membersBody');
+
+        let currentUserId = null;
+
+        document.getElementById('iconRefresh').innerHTML = window.shellIcon('refresh', 'sm');
+
+        function showAlert(message, type) {
+            alertBox.textContent = message;
+            alertBox.className = `alert show ${type || 'success'}`;
+            if (type !== 'error') {
+                setTimeout(() => { alertBox.className = 'alert'; }, 4000);
+            }
+        }
+
+        function initials(name) {
+            return String(name || '?')
+                .trim()
+                .split(/\s+/)
+                .slice(0, 2)
+                .map((part) => part.charAt(0))
+                .join('');
+        }
+
+        function formatDate(value) {
+            if (!value) return 'Never';
+            const date = new Date(value);
+            if (isNaN(date.getTime())) return '—';
+            return date.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
+        }
+
+        function formatPhone(value) {
+            return value ? `+91 ${value.slice(0, 5)} ${value.slice(5)}` : 'Not verified';
+        }
+
+        function escapeHtml(value) {
+            return String(value == null ? '' : value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function memberRow(member) {
+            const isSelf = member.id === currentUserId;
+            const isAdmin = member.role === 'admin';
+
+            const actions = isSelf
+                ? '<span class="muted">—</span>'
+                : `
+                    <div class="actions">
+                      <button class="btn small" data-action="role" data-id="${member.id}"
+                        data-role="${isAdmin ? 'member' : 'admin'}">${isAdmin ? 'Make member' : 'Make admin'}</button>
+                      <button class="btn small danger" data-action="delete" data-id="${member.id}"
+                        data-name="${escapeHtml(member.name)}">Remove</button>
+                    </div>`;
+
+            return `
+                <tr>
+                  <td>
+                    <div class="person">
+                      <span class="shell-avatar">${escapeHtml(initials(member.name))}</span>
+                      <span class="person-name">${escapeHtml(member.name)}${isSelf ? '<span class="you-tag">you</span>' : ''}</span>
+                    </div>
+                  </td>
+                  <td class="muted">${escapeHtml(member.email)}</td>
+                  <td class="muted">${escapeHtml(formatPhone(member.phone))}</td>
+                  <td><span class="shell-role visible${isAdmin ? '' : ' member'}">${member.role}</span></td>
+                  <td class="muted">${formatDate(member.created_at)}</td>
+                  <td class="muted">${formatDate(member.last_login_at)}</td>
+                  <td>${actions}</td>
+                </tr>`;
+        }
+
+        async function loadMembers() {
+            try {
+                const response = await window.apiFetch('/api/v1/auth/users');
+                const data = await response.json();
+
+                currentUserId = data.currentUserId;
+                document.getElementById('statTotal').textContent = data.counts.total;
+                document.getElementById('statAdmins').textContent = data.counts.admins;
+                document.getElementById('statMembers').textContent = data.counts.members;
+
+                membersBody.innerHTML = data.users.map(memberRow).join('');
+            } catch (err) {
+                membersBody.innerHTML = '<tr class="empty"><td colspan="7">Could not load members.</td></tr>';
+            }
+        }
+
+        async function changeRole(id, role) {
+            const response = await window.apiFetch(`/api/v1/auth/users/${id}/role`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role }),
+            });
+
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) return showAlert(data.error || 'Could not update the role.', 'error');
+
+            showAlert(`${data.user.name} is now ${role === 'admin' ? 'an admin' : 'a member'}.`, 'success');
+            loadMembers();
+        }
+
+        async function removeMember(id, name) {
+            if (!window.confirm(`Remove ${name}? They will lose access to the studio.`)) return;
+
+            const response = await window.apiFetch(`/api/v1/auth/users/${id}/delete`, { method: 'POST' });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) return showAlert(data.error || 'Could not remove the member.', 'error');
+
+            showAlert(`${name} was removed.`, 'success');
+            loadMembers();
+        }
+
+        membersBody.addEventListener('click', (event) => {
+            const button = event.target.closest('button[data-action]');
+            if (!button) return;
+
+            const id = Number(button.dataset.id);
+            if (button.dataset.action === 'role') changeRole(id, button.dataset.role);
+            if (button.dataset.action === 'delete') removeMember(id, button.dataset.name);
+        });
+
+        document.getElementById('refreshBtn').addEventListener('click', loadMembers);
+
+        loadMembers();
+    </script>
+</body>
+
+</html>

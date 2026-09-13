@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Credit Card Offers</title>
+
+  <style>
+    .web-cc-card-box {
+      max-width: 380px;
+      font-family: sans-serif;
+    }
+
+    .web-cc-heading {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+
+    .web-cc-slider {
+      display: flex;
+      gap: 12px;
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      scrollbar-width: none;
+      scroll-behavior: smooth;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .web-cc-slider::-webkit-scrollbar {
+      display: none;
+    }
+
+    .web-cc-slide-item {
+      flex: 0 0 93%;
+      scroll-snap-align: start;
+    }
+
+    .web-cc-slide-item a {
+      display: block;
+      text-decoration: none;
+    }
+
+    .web-cc-slide-img {
+      width: 100%;
+      border-radius: 25px;
+      display: block;
+    }
+
+    .web-cc-footer-text {
+      font-size: 14px;
+      margin: 12px;
+      color: #333;
+    }
+
+    .web-cc-tc-link {
+      color: #0056b3;
+      text-decoration: underline;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="web-cc-card-box">
+
+    <div class="web-cc-heading">
+      Exclusive Benefits on Credit Cards
+    </div>
+
+    <div class="web-cc-slider" id="webCcSlider">
+
+      <!-- Card Offer 1 -->
+      <div class="web-cc-slide-item">
+        <a href="{{catalog['catalog_37'][user['custom']['DefaultCard']]['Banner_1_URL']}}">
+          <img
+            class="web-cc-slide-img"
+            src="https://email-editor-resources.s3.amazonaws.com/images/inweaa131662/ashva_1.jpg"
+            alt="Card Offer 1"
+          >
+        </a>
+      </div>
+
+      <!-- Card Offer 2 -->
+      <div class="web-cc-slide-item">
+        <a href="{{catalog['catalog_37'][user['custom']['DefaultCard']]['Banner_2_URL']}}">
+          <img
+            class="web-cc-slide-img"
+            src="https://email-editor-resources.s3.amazonaws.com/images/inwed3a49b14/Ashva%20Credit%20Card_5.png"
+            alt="Card Offer 2"
+          >
+        </a>
+      </div>
+
+      <!-- Card Offer 3 -->
+      <div class="web-cc-slide-item">
+        <a href="{{catalog['catalog_37'][user['custom']['DefaultCard']]['Banner_3_URL']}}">
+          <img
+            class="web-cc-slide-img"
+            src="https://email-editor-resources.s3.amazonaws.com/images/inwed3a49b14/mob_1.png"
+            alt="Card Offer 3"
+          >
+        </a>
+      </div>
+
+    </div>
+
+    <div class="web-cc-footer-text">
+      Please visit the
+      <a
+        href="#"
+        class="web-cc-tc-link"
+        data-toggle="modal"
+        data-target="#flipFlop"
+      >T&amp;C</a>
+      for details.
+    </div>
+
+  </div>
+
+
+  <script>
+    (function () {
+
+      const slider = document.getElementById("webCcSlider");
+      const cards = slider.querySelectorAll(".web-cc-slide-item");
+
+      let currentIndex = 0;
+      let autoScrollTimer = null;
+      let userInteracting = false;
+
+      // Time each card stays visible
+      const AUTO_SCROLL_DELAY = 3000;
+
+      function getCardPosition(index) {
+        const card = cards[index];
+
+        return card.offsetLeft;
+      }
+
+      function scrollToCard(index) {
+
+        if (userInteracting) {
+          return;
+        }
+
+        if (index >= cards.length) {
+          index = 0;
+        }
+
+        currentIndex = index;
+
+        slider.scrollTo({
+          left: getCardPosition(currentIndex),
+          behavior: "smooth"
+        });
+      }
+
+      function startAutoScroll() {
+
+        stopAutoScroll();
+
+        if (userInteracting) {
+          return;
+        }
+
+        autoScrollTimer = setInterval(function () {
+
+          if (!userInteracting) {
+            currentIndex++;
+
+            if (currentIndex >= cards.length) {
+              currentIndex = 0;
+            }
+
+            scrollToCard(currentIndex);
+          }
+
+        }, AUTO_SCROLL_DELAY);
+      }
+
+      function stopAutoScroll() {
+
+        if (autoScrollTimer) {
+          clearInterval(autoScrollTimer);
+          autoScrollTimer = null;
+        }
+      }
+
+      /*
+       * Stop auto-scroll when user interacts
+       */
+      function userStartInteraction() {
+
+        userInteracting = true;
+        stopAutoScroll();
+      }
+
+      /*
+       * Mouse interaction
+       */
+      slider.addEventListener("mouseenter", userStartInteraction);
+
+      /*
+       * Touch / swipe interaction
+       */
+      slider.addEventListener("touchstart", userStartInteraction, {
+        passive: true
+      });
+
+      /*
+       * Mouse drag / pointer interaction
+       */
+      slider.addEventListener("pointerdown", userStartInteraction);
+
+      /*
+       * Stop permanently when user clicks a card
+       */
+      slider.addEventListener("click", function () {
+        userInteracting = true;
+        stopAutoScroll();
+      });
+
+      /*
+       * Detect manual scrolling/swiping.
+       * Once the user manually scrolls, auto-scroll remains stopped.
+       */
+      slider.addEventListener("scroll", function () {
+
+        if (userInteracting) {
+          stopAutoScroll();
+        }
+
+      }, {
+        passive: true
+      });
+
+      /*
+       * Start automatic scrolling
+       */
+      startAutoScroll();
+
+    })();
+  </script>
+
+</body>
+</html>

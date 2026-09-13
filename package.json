@@ -1,0 +1,23 @@
+{
+  "name": "webengage-studio",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "migrate": "node scripts/migrate-templates-to-json.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1101.0",
+    "@aws-sdk/node-http-handler": "^3.370.0",
+    "body-parser": "^2.3.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "ioredis": "^5.11.1",
+    "mysql2": "^3.23.1",
+    "sharp": "^0.35.3"
+  },
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=18"
+  }
+}

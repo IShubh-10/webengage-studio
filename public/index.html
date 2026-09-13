@@ -1,0 +1,1565 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png"
+        href="https://afiles.webengage.com/76aba26/8dd7acac-b831-43c8-b1c1-e71673271986.avif" />
+    <title>Dynamic Images · Webengage Creative Studio</title>
+    <link rel="stylesheet" href="/assets/theme.css" />
+    <link rel="stylesheet" href="/assets/shell.css" />
+    <script>
+        // The nav bar's Dynamic Images sections are views inside this page, so it
+        // hands them back here instead of navigating.
+        window.STUDIO_SHELL = {
+            active: 'studio',
+            section: new URLSearchParams(window.location.search).get('view') === 'templates'
+                ? 'templates'
+                : 'studio',
+            onSection: (key) => switchTab(key),
+        };
+    </script>
+    <style>
+        /* Layout ---------------------------------------------------------- */
+        .view-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .page-view {
+            display: none;
+            height: 100%;
+            width: 100%;
+        }
+
+        .page-view.active {
+            display: flex;
+            overflow-y: auto;
+        }
+
+        .studio-layout {
+            display: grid;
+            grid-template-columns: 320px 1fr 300px;
+            gap: 16px;
+            padding: 16px;
+            height: 100%;
+            width: 100%;
+        }
+
+        /* Panels ---------------------------------------------------------- */
+        .panel {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            box-shadow: var(--shadow-card);
+        }
+
+        .panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 16px;
+            background: var(--panel-alt);
+            border-bottom: 1px solid var(--border-color);
+            font-size: 14px;
+            font-weight: 600;
+            color: #334155;
+        }
+
+        .panel-body {
+            flex: 1;
+            padding: 16px;
+            overflow-y: auto;
+        }
+
+        /* Forms ----------------------------------------------------------- */
+        .form-group {
+            margin-bottom: 14px;
+        }
+
+        .form-group.inline {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .form-group.inline label {
+            margin-bottom: 0;
+        }
+
+        textarea {
+            min-height: 38px;
+            line-height: 1.5;
+            resize: vertical;
+        }
+
+        .btn-group-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        /* Buttons: the studio's own buttons fill their column ------------- */
+        button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            width: 100%;
+            padding: 9px 14px;
+            border: none;
+            border-radius: var(--radius-sm);
+            background: var(--success);
+            color: #ffffff;
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+        }
+
+        button:hover {
+            background: var(--success-hover);
+        }
+
+        button.secondary {
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            color: #334155;
+        }
+
+        button.secondary:hover {
+            background: var(--panel-alt);
+            border-color: var(--border-strong);
+            color: #334155;
+        }
+
+        button.primary {
+            background: var(--primary);
+        }
+
+        button.primary:hover {
+            background: var(--primary-hover);
+        }
+
+        button.success {
+            background: var(--success);
+        }
+
+        button.success:hover {
+            background: var(--success-hover);
+        }
+
+        /* Canvas ---------------------------------------------------------- */
+        .canvas-panel {
+            display: flex;
+            flex-direction: column;
+            /* overflow: hidden; */
+            /* background: #cbd5e1; */
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: linear-gradient(45deg, #eef2f6 25%, transparent 25%) -8px 0 / 16px 16px, linear-gradient(-45deg, #eef2f6 25%, transparent 25%) -8px 0 / 16px 16px, linear-gradient(45deg, transparent 75%, #eef2f6 75%) 0 0 / 16px 16px, linear-gradient(-45deg, transparent 75%, #eef2f6 75%) 0 0 / 16px 16px, #f8fafc;
+        }
+
+        .canvas-viewport {
+            flex: 1;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            overflow: auto;
+        }
+
+        .canvas-inner {
+            position: relative;
+            display: inline-block;
+            overflow: hidden;
+            background: #ffffff;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
+        }
+
+        .canvas-inner.empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 500px;
+            height: 300px;
+            border-radius: 8px;
+            background: #1e293b;
+            color: #94a3b8;
+            font-size: 14px;
+        }
+
+        /* Canvas elements and resize handles ------------------------------ */
+        .text-element,
+        .image-element {
+            position: absolute;
+            top: 0;
+            left: 0;
+            box-sizing: border-box;
+            border: 1px dashed transparent;
+            cursor: move;
+            user-select: none;
+        }
+
+        .text-element:hover,
+        .image-element:hover {
+            border-color: var(--primary);
+        }
+
+        .image-element.selected,
+        .text-element.selected {
+            border: 1px solid var(--primary);
+        }
+
+        .image-element img {
+            display: block;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .resize-handle {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            display: none;
+            background: #ffffff;
+            border: 1.5px solid var(--primary);
+            border-radius: 2px;
+        }
+
+        .selected .resize-handle {
+            display: block;
+        }
+
+        .resize-handle.tl {
+            top: -5px;
+            left: -5px;
+            cursor: nwse-resize;
+        }
+
+        .resize-handle.tr {
+            top: -5px;
+            right: -5px;
+            cursor: nesw-resize;
+        }
+
+        .resize-handle.bl {
+            bottom: -5px;
+            left: -5px;
+            cursor: nesw-resize;
+        }
+
+        .resize-handle.br {
+            bottom: -5px;
+            right: -5px;
+            cursor: nwse-resize;
+        }
+
+        /* Mid-edge handles resize a single axis, so an overlay can be stretched
+           to match a background of any aspect ratio. */
+        .resize-handle.t,
+        .resize-handle.b {
+            left: 50%;
+            margin-left: -4px;
+            cursor: ns-resize;
+        }
+
+        .resize-handle.t {
+            top: -5px;
+        }
+
+        .resize-handle.b {
+            bottom: -5px;
+        }
+
+        .resize-handle.l,
+        .resize-handle.r {
+            top: 50%;
+            margin-top: -4px;
+            cursor: ew-resize;
+        }
+
+        .resize-handle.l {
+            left: -5px;
+        }
+
+        .resize-handle.r {
+            right: -5px;
+        }
+
+        /* Layers list ----------------------------------------------------- */
+        .layers-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .layer-card {
+            overflow: hidden;
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .layer-card:hover {
+            border-color: var(--border-strong);
+            box-shadow: var(--shadow-card);
+        }
+
+        .layer-card.active {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(1, 84, 165, 0.12);
+        }
+
+        .layer-thumb {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 72px;
+            padding: 8px;
+            overflow: hidden;
+            background: var(--panel-alt);
+            background-image: url('https://afiles.webengage.com/76aba26/a60b8c8b-9d03-4e2f-a2f9-d5b39d12d595.jpg');
+            background-size: cover;
+        }
+
+        .layer-thumb img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .layer-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 8px 12px;
+            border-top: 1px solid var(--border-color);
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+
+        .btn-delete-layer {
+            width: auto;
+            padding: 4px 9px;
+            background: transparent;
+            color: var(--danger-border);
+            font-size: 11px;
+        }
+
+        .btn-delete-layer:hover {
+            background: var(--danger-wash);
+            color: var(--danger);
+        }
+
+        /* Templates library ---------------------------------------------- */
+        .library-layout {
+            flex: 1;
+            padding: 24px;
+            overflow-y: auto;
+        }
+
+        .library-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .library-header h2 {
+            font-size: 22px;
+            margin-bottom: 4px;
+        }
+
+        .library-header button {
+            width: auto;
+        }
+
+        .templates-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+            gap: 16px;
+        }
+
+        .template-card {
+            overflow: hidden;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-card);
+            transition: transform 0.18s var(--ease), box-shadow 0.18s var(--ease), border-color 0.18s var(--ease);
+        }
+
+        .template-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--primary);
+            box-shadow: 0 8px 20px -6px rgba(1, 84, 165, 0.28);
+        }
+
+        .template-card-preview {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 155px;
+            padding: 12px;
+            overflow: hidden;
+            background: var(--panel-alt);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .template-card-preview img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .template-card-body {
+            padding: 14px 16px 16px;
+        }
+
+        .template-card-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .template-card-meta {
+            margin-bottom: 12px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .template-card-actions {
+            display: flex;
+            flex-wrap: nowrap;
+            gap: 8px;
+        }
+
+        /* Edit spans the row; Copy URL and Delete share the one below. With no
+           Delete button (members) Copy URL spans instead of sitting half-width. */
+        .template-card-actions button:first-child,
+        .template-card-actions button:last-child:nth-child(2) {
+            grid-column: 1 / -1;
+        }
+
+        .template-card-body button {
+            padding: 7px 11px;
+            font-size: 12px;
+        }
+
+        button.danger {
+            background: #ffffff;
+            border: 1px solid var(--danger-border);
+            color: var(--danger);
+        }
+
+        button.danger:hover {
+            background: var(--danger-wash);
+            border-color: #f87171;
+            color: var(--danger);
+        }
+
+        /* Alerts and generated URL --------------------------------------- */
+        .alert {
+            margin-bottom: 14px;
+            padding: 10px 13px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .alert.info {
+            background: var(--primary-wash);
+            border-color: #bfdbfe;
+            color: #1e40af;
+        }
+
+        .alert.success {
+            background: var(--ok-wash);
+            border-color: var(--ok-border);
+            color: var(--ok);
+        }
+
+        .alert.error {
+            background: var(--danger-wash);
+            border-color: var(--danger-border);
+            color: var(--danger);
+        }
+
+        .code-output {
+            padding: 12px;
+            background: var(--panel-alt);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+        }
+
+        .code-output code {
+            display: block;
+            margin: 6px 0 10px;
+            font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+            font-size: 11px;
+            line-height: 1.6;
+            word-break: break-all;
+            color: var(--text-main);
+        }
+
+        .code-output button {
+            padding: 7px 11px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app-shell">
+
+        <!-- Nav bar: logo and profile only — navigation lives in the profile menu -->
+        <header class="topnav">
+            <a class="brand" href="/tools">
+                <h1>Webengage<span>Studio</span></h1>
+            </a>
+            <div class="nav-right">
+                <div id="shellUser"></div>
+            </div>
+        </header>
+
+        <div class="app-content fixed">
+
+            <!-- Views Container -->
+            <div class="view-container">
+
+        <!-- PAGE 1: STUDIO VIEW -->
+        <div class="page-view active" id="pageStudio">
+            <div class="studio-layout">
+
+                <!-- Left Column: Template Config & Element Add -->
+                <div class="panel">
+                    <div class="panel-header">Template Configuration</div>
+                    <div class="panel-body">
+                        <div id="alert" class="alert info" style="display: none"></div>
+
+                        <div class="form-group">
+                            <label for="templateId">Template ID</label>
+                            <input type="text" id="templateId" disabled placeholder="Generating..." />
+                        </div>
+
+                        <div class="form-group">
+                            <label for="bgUrl">Background Image URL <span style="color: red;">*</span></label>
+                            <textarea id="bgUrl" placeholder="https://example.com/bg.jpg" rows="2" required></textarea>
+                        </div>
+
+                        <hr style="margin: 16px 0; border: none; border-top: 1px solid var(--border-color);" />
+
+                        <div class="form-group">
+                            <label for="elementType">Element Type</label>
+                            <select id="elementType">
+                                <option value="text">Text Layer</option>
+                                <option value="image">Image Overlay</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group" id="textContentGroup">
+                            <label for="textContent">Text Content</label>
+                            <textarea id="textContent" placeholder='e.g., "Hello, {{firstName}}!"' rows="2"></textarea>
+                        </div>
+
+                        <div class="form-group" id="imageSrcGroup" style="display: none;">
+                            <label for="imageSrc">Image URL</label>
+                            <textarea id="imageSrc" placeholder='"https://..." or "{{avatarUrl}}"' rows="2"></textarea>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                            <div class="form-group">
+                                <label for="textX">Position X</label>
+                                <input type="number" id="textX" value="20" />
+                            </div>
+                            <div class="form-group">
+                                <label for="textY">Position Y</label>
+                                <input type="number" id="textY" value="20" />
+                            </div>
+                        </div>
+
+                        <div id="textOnlyFields">
+                            <div class="form-group">
+                                <label for="fontSize">Font Size (px)</label>
+                                <input type="number" id="fontSize" value="24" min="8" max="120" />
+                            </div>
+                            <div class="form-group">
+                                <label for="fontWeight">Font Weight</label>
+                                <select id="fontWeight">
+                                    <option value="normal">Normal</option>
+                                    <option value="bold">Bold</option>
+                                    <option value="600">Semi-bold</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="fontFamily">Font Family</label>
+                                <select id="fontFamily">
+                                    <option value="Arial" style="font-family: Arial, sans-serif;">Arial</option>
+                                    <option value="Helvetica" style="font-family: Helvetica, sans-serif;">Helvetica
+                                    </option>
+                                    <option value="Verdana" style="font-family: Verdana, sans-serif;">Verdana</option>
+                                    <option value="Tahoma" style="font-family: Tahoma, sans-serif;">Tahoma</option>
+                                    <option value="Trebuchet MS" style="font-family: 'Trebuchet MS', sans-serif;">
+                                        Trebuchet MS</option>
+                                    <option value="Gill Sans" style="font-family: 'Gill Sans', sans-serif;">Gill Sans
+                                    </option>
+                                    <option value="Segoe UI" style="font-family: 'Segoe UI', sans-serif;">Segoe UI
+                                    </option>
+                                    <option value="Calibri" style="font-family: Calibri, sans-serif;">Calibri</option>
+                                    <option value="Candara" style="font-family: Candara, sans-serif;">Candara</option>
+
+                                    <option value="Times New Roman" style="font-family: 'Times New Roman', serif;">Times
+                                        New Roman</option>
+                                    <option value="Georgia" style="font-family: Georgia, serif;">Georgia</option>
+                                    <option value="Garamond" style="font-family: Garamond, serif;">Garamond</option>
+                                    <option value="Palatino Linotype" style="font-family: 'Palatino Linotype', serif;">
+                                        Palatino Linotype</option>
+                                    <option value="Book Antiqua" style="font-family: 'Book Antiqua', serif;">Book
+                                        Antiqua</option>
+
+                                    <option value="Courier New" style="font-family: 'Courier New', monospace;">Courier
+                                        New</option>
+                                    <option value="Lucida Console" style="font-family: 'Lucida Console', monospace;">
+                                        Lucida Console</option>
+                                    <option value="Monaco" style="font-family: Monaco, monospace;">Monaco</option>
+
+                                    <option value="Impact" style="font-family: Impact, sans-serif;">Impact</option>
+                                    <option value="Comic Sans MS" style="font-family: 'Comic Sans MS', cursive;">Comic
+                                        Sans MS</option>
+                                    <option value="Lucida Sans Unicode"
+                                        style="font-family: 'Lucida Sans Unicode', sans-serif;">Lucida Sans Unicode
+                                    </option>
+                                    <option value="Century Gothic" style="font-family: 'Century Gothic', sans-serif;">
+                                        Century Gothic</option>
+                                    <option value="Franklin Gothic Medium"
+                                        style="font-family: 'Franklin Gothic Medium', sans-serif;">Franklin Gothic
+                                        Medium</option>
+                                    <option value="Arial Black" style="font-family: 'Arial Black', sans-serif;">Arial
+                                        Black</option>
+                                </select>
+                            </div>
+                            <div class="form-group inline">
+                                <label for="textColor">Text Color</label>
+                                <input type="color" id="textColor" value="#000000" />
+                            </div>
+                        </div>
+
+                        <div id="imageOnlyFields" style="display: none;">
+                            <div class="form-group">
+                                <label for="imageWidth">Width (px / auto)</label>
+                                <input type="text" id="imageWidth" value="100" />
+                            </div>
+                            <div class="form-group">
+                                <label for="imageHeight">Height (px / auto)</label>
+                                <input type="text" id="imageHeight" value="auto" />
+                            </div>
+                            <div class="form-group">
+                                <label for="imageFit">Sizing</label>
+                                <select id="imageFit">
+                                    <option value="contain">Contain - fit inside the box, keep ratio</option>
+                                    <option value="cover">Cover - fill the box, crop overflow</option>
+                                    <option value="fill">Stretch - fill the box, ignore ratio</option>
+                                </select>
+                            </div>
+                            <button class="secondary" id="fillBackgroundBtn" type="button">Fill background</button>
+                        </div>
+
+                        <button id="addTextBtn">Add Element</button>
+                        <div class="btn-group-row" style="margin-top: 8px;">
+                            <button class="success" id="updateElementBtn" style="display: none;">Update Element</button>
+                            <button class="secondary" id="cancelEditBtn" style="display: none;">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Center Column: Canvas Workspace -->
+                <div class="canvas-panel">
+                    <div class="panel-header">Raw Image Preview</div>
+                    <div class="canvas-viewport" id="canvas">
+                        <div class="canvas-inner empty" id="canvasInner">
+                            Enter a background image URL to display workspace
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Column: Layers & Actions Sidebar -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <span>Layers Layout</span>
+                    </div>
+                    <div class="panel-body">
+
+                        <!-- Quick Workspace Action Buttons -->
+                        <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+                            <button class="success" id="saveTemplateBtn">Save</button>
+                            <button class="secondary" id="newTemplateBtn">+ New</button>
+                        </div>
+
+                        <button class="secondary" id="generateCodeBtn" style="margin-bottom: 12px;">Generate Render
+                            URL</button>
+
+                        <div class="code-output" id="codeOutput" style="display: none;">
+                            <strong>Render URL:</strong>
+                            <code id="generatedUrl"></code>
+                            <button class="secondary" id="copyCodeBtn"
+                                style="margin-top:6px; font-size:11px; padding:4px 8px;">Copy URL</button>
+                        </div>
+
+                        <hr style="margin: 16px 0; border: none; border-top: 1px solid var(--border-color);" />
+
+                        <!-- Active Layers Render -->
+                        <div class="layers-list" id="textElementsList"></div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- PAGE 2: TEMPLATES LIBRARY VIEW -->
+        <div class="page-view" id="pageTemplates">
+            <div class="library-layout">
+                <div class="library-header">
+                    <div>
+                        <h2>Templates Library</h2>
+                        <p style="color: var(--text-muted); font-size: 13px;">Manage and load your saved dynamic image
+                            templates.</p>
+                    </div>
+                    <button class="primary" style="width: auto;"
+                        onclick="switchTab('studio'); resetStudioForNewTemplate();">+ Create New Template</button>
+                </div>
+
+                <div class="templates-grid" id="templatesGrid">
+                    <p style="color: var(--text-muted);">Loading templates...</p>
+                </div>
+            </div>
+        </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script src="/assets/shell.js"></script>
+
+    <script>
+        const state = {
+            templateId: '',
+            backgroundUrl: '',
+            textElements: [],
+            selectedElementIndex: -1,
+        };
+
+        // DOM Caching
+        const templateIdInput = document.getElementById('templateId');
+        const bgUrlInput = document.getElementById('bgUrl');
+        const elementTypeInput = document.getElementById('elementType');
+        const textContentGroup = document.getElementById('textContentGroup');
+        const imageSrcGroup = document.getElementById('imageSrcGroup');
+        const textOnlyFields = document.getElementById('textOnlyFields');
+        const imageOnlyFields = document.getElementById('imageOnlyFields');
+        const textContentInput = document.getElementById('textContent');
+        const imageSrcInput = document.getElementById('imageSrc');
+        const textXInput = document.getElementById('textX');
+        const textYInput = document.getElementById('textY');
+        const fontSizeInput = document.getElementById('fontSize');
+        const fontWeightInput = document.getElementById('fontWeight');
+        const fontFamilyInput = document.getElementById('fontFamily');
+        const textColorInput = document.getElementById('textColor');
+        const imageWidthInput = document.getElementById('imageWidth');
+        const imageHeightInput = document.getElementById('imageHeight');
+        const imageFitInput = document.getElementById('imageFit');
+        const fillBackgroundBtn = document.getElementById('fillBackgroundBtn');
+        const addTextBtn = document.getElementById('addTextBtn');
+        const updateElementBtn = document.getElementById('updateElementBtn');
+        const cancelEditBtn = document.getElementById('cancelEditBtn');
+        const saveTemplateBtn = document.getElementById('saveTemplateBtn');
+        const newTemplateBtn = document.getElementById('newTemplateBtn');
+        const generateCodeBtn = document.getElementById('generateCodeBtn');
+        const copyCodeBtn = document.getElementById('copyCodeBtn');
+        const canvasInner = document.getElementById('canvasInner');
+        const textElementsList = document.getElementById('textElementsList');
+        const templatesGrid = document.getElementById('templatesGrid');
+        const alertDiv = document.getElementById('alert');
+        const codeOutput = document.getElementById('codeOutput');
+        const generatedUrl = document.getElementById('generatedUrl');
+
+        const fontFamilySelect = document.getElementById('fontFamily');
+
+        fontFamilySelect.addEventListener('change', (e) => {
+            const selectedFont = e.target.value;
+
+            // 1. Instantly update the dropdown input font styling
+            fontFamilySelect.style.fontFamily = selectedFont;
+
+            // 2. Instantly update the active text element on your Studio Canvas/Card
+            if (selectedTextElement) { // Replace with your active element/layer state variable
+                selectedTextElement.fontFamily = selectedFont;
+
+                // Re-render canvas or studio preview instantly
+                renderStudioCanvas();
+            }
+        });
+        fontFamilySelect.style.fontFamily = fontFamilySelect.value;
+
+        // Page Tab Switcher Logic
+        function switchTab(tabName) {
+            const view = tabName === 'templates' ? 'templates' : 'studio';
+
+            document.getElementById('pageStudio').classList.toggle('active', view === 'studio');
+            document.getElementById('pageTemplates').classList.toggle('active', view === 'templates');
+
+            // Move the sidebar highlight and keep the URL linkable / reloadable
+            if (window.Shell) window.Shell.setSection(view);
+
+            const url = new URL(window.location.href);
+            url.searchParams.set('view', view);
+            window.history.replaceState({}, '', url);
+
+            if (view === 'templates') {
+                fetchSavedTemplates();
+            }
+        }
+
+        function showAlert(message, type = 'info') {
+            alertDiv.textContent = message;
+            alertDiv.className = `alert ${type}`;
+            alertDiv.style.display = 'block';
+            if (type !== 'error') {
+                setTimeout(() => { alertDiv.style.display = 'none'; }, 4000);
+            }
+        }
+
+        async function fetchNextTemplateId() {
+            try {
+                const res = await apiFetch('/api/v1/templates/next-id');
+                const data = await res.json();
+                state.templateId = data.nextId;
+                templateIdInput.value = data.nextId;
+            } catch (err) { console.error('Error getting next ID', err); }
+        }
+
+        async function fetchSavedTemplates() {
+            try {
+                const res = await apiFetch('/api/v1/templates');
+                const data = await res.json();
+
+                if (!data.templates || data.templates.length === 0) {
+                    templatesGrid.innerHTML = '<p style="color: var(--text-muted);">No saved templates found.</p>';
+                    return;
+                }
+
+                // Sort templates sequentially (WEB-01, WEB-02, WEB-03...)
+                const sortedTemplates = [...data.templates].sort((a, b) => {
+                    return a.template_id.localeCompare(b.template_id, undefined, { numeric: true, sensitivity: 'base' });
+                });
+
+                // Deleting a template is admin-only, so the button only exists for them
+                const isAdmin = window.shellUser && window.shellUser.role === 'admin';
+
+                templatesGrid.innerHTML = sortedTemplates.map(t => `
+      <div class="template-card">
+        <div class="template-card-preview">
+          <img src="/api/v1/render/${t.template_id}" alt="${t.template_id}" onerror="this.src='${t.background_url}'" />
+        </div>
+        <div class="template-card-body">
+          <div class="template-card-title">${t.template_id}</div>
+          <div class="template-card-meta">Layers: ${t.textElements ? t.textElements.length : 0}</div>
+          <div class="template-card-actions">
+            <button onclick="loadTemplateIntoStudio('${t.template_id}')">Edit in Studio</button>
+            <button class="secondary" onclick="copyRenderUrlFor('${t.template_id}', this)">Copy URL</button>
+            ${isAdmin ? `<button class="danger" onclick="deleteTemplate('${t.template_id}')">Delete</button>` : ''}
+          </div>
+        </div>
+      </div>
+    `).join('');
+            } catch (err) {
+                templatesGrid.innerHTML = '<p style="color: #ef4444;">Failed to load saved templates.</p>';
+            }
+        }
+
+        window.loadTemplateIntoStudio = async function (templateId) {
+            try {
+                const res = await apiFetch('/api/v1/templates');
+                const data = await res.json();
+                const found = data.templates.find(t => t.template_id === templateId);
+
+                if (found) {
+                    state.templateId = found.template_id;
+                    templateIdInput.value = found.template_id;
+                    bgUrlInput.value = found.background_url;
+                    state.textElements = found.textElements || [];
+                    updateCanvasBackground();
+                    renderTextElementsList();
+                    switchTab('studio');
+                    showAlert(`Loaded ${templateId}`, 'success');
+                }
+            } catch (e) { showAlert('Error loading template', 'error'); }
+        };
+
+        // Admin only: the endpoint enforces it too, this just hides the button
+        window.deleteTemplate = async function (templateId) {
+            const confirmed = window.confirm(
+                `Delete ${templateId}? Any render URL still pointing at it will start returning 404. This cannot be undone.`
+            );
+            if (!confirmed) return;
+
+            try {
+                const response = await apiFetch(`/api/v1/templates/${templateId}/delete`, { method: 'POST' });
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    return showAlert(data.error || `Could not delete ${templateId}`, 'error');
+                }
+
+                showAlert(`Deleted ${templateId}`, 'success');
+
+                // If the deleted template was open in the workspace, start fresh
+                if (state.templateId === templateId) resetStudioForNewTemplate();
+
+                fetchSavedTemplates();
+            } catch (err) {
+                showAlert(`Could not delete ${templateId}`, 'error');
+            }
+        };
+
+        window.copyRenderUrlFor = async function (templateId, btnElement) {
+            try {
+                const res = await apiFetch('/api/v1/templates');
+                const data = await res.json();
+                const found = data.templates.find(t => t.template_id === templateId);
+
+                if (!found) return;
+
+                const foundPlaceholders = new Set();
+                const placeholderRegex = /\{\{([\w\-]+)\}\}/g;
+
+                // Scan background URL for variables
+                if (found.background_url) {
+                    let match;
+                    while ((match = placeholderRegex.exec(found.background_url)) !== null) {
+                        foundPlaceholders.add(match[1]);
+                    }
+                }
+
+                // Scan layer elements (text or image) for variables
+                (found.textElements || []).forEach(el => {
+                    const contentToScan = el.type === 'image' ? (el.src || '') : (el.text || '');
+                    let match;
+                    while ((match = placeholderRegex.exec(contentToScan)) !== null) {
+                        foundPlaceholders.add(match[1]);
+                    }
+                });
+
+                // Build URL with query parameters
+                let url = `${window.location.origin}/api/v1/render/${templateId}`;
+                const params = new URLSearchParams();
+                foundPlaceholders.forEach((v) => params.append(v, `enter_${v}`));
+
+                const queryString = params.toString();
+                if (queryString) {
+                    url += '?' + queryString;
+                }
+
+                // Copy to clipboard
+                await navigator.clipboard.writeText(url);
+
+                // Button UI feedback: Change text to "Copied!" for 1 second with no alerts
+                if (btnElement) {
+                    const originalText = btnElement.textContent;
+                    btnElement.textContent = 'Copied!';
+                    //   btnElement.style.backgroundColor = '#dcfce7';
+                    btnElement.style.color = '#15803d';
+                    //   btnElement.style.borderColor = '#16a34a';
+
+                    setTimeout(() => {
+                        btnElement.textContent = originalText;
+                        btnElement.style.backgroundColor = '';
+                        btnElement.style.color = '';
+                        btnElement.style.borderColor = '';
+                    }, 1000);
+                }
+            } catch (e) {
+                console.error('Error copying URL', e);
+            }
+        };
+
+        copyCodeBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(generatedUrl.textContent);
+
+            const originalText = copyCodeBtn.textContent;
+            copyCodeBtn.textContent = 'Copied!';
+            //   copyCodeBtn.style.backgroundColor = '#dcfce7';
+            copyCodeBtn.style.color = '#15803d';
+            //   copyCodeBtn.style.borderColor = '#16a34a';
+
+            setTimeout(() => {
+                copyCodeBtn.textContent = originalText;
+                copyCodeBtn.style.backgroundColor = '';
+                copyCodeBtn.style.color = '';
+                copyCodeBtn.style.borderColor = '';
+            }, 1000);
+        });
+
+        function updateCanvasBackground() {
+            const bgUrl = bgUrlInput.value.trim();
+            if (!bgUrl) {
+                canvasInner.className = 'canvas-inner empty';
+                canvasInner.innerHTML = 'Enter a background image URL to display workspace';
+                return;
+            }
+            state.backgroundUrl = bgUrl;
+            canvasInner.className = 'canvas-inner';
+            canvasInner.style.height = '300px';
+
+            const img = document.createElement('img');
+            img.src = bgUrl;
+            img.style.height = '300px';
+            img.style.width = 'auto';
+            img.style.display = 'block';
+            img.style.objectFit = 'fill';
+            img.style.pointerEvents = 'none';
+
+            img.onload = () => {
+                const naturalRatio = img.naturalWidth / (img.naturalHeight || 1);
+                const exactWidth = Math.round(300 * naturalRatio);
+
+                canvasInner.style.width = exactWidth + 'px';
+                img.style.width = exactWidth + 'px';
+                renderTextElements();
+            };
+
+            img.onerror = () => {
+                canvasInner.className = 'canvas-inner empty';
+                canvasInner.innerHTML = 'Failed to load background image URL';
+            };
+
+            canvasInner.innerHTML = '';
+            canvasInner.appendChild(img);
+            renderTextElements();
+        }
+
+        function updateFormForType() {
+            const isImage = elementTypeInput.value === 'image';
+            textContentGroup.style.display = isImage ? 'none' : 'block';
+            imageSrcGroup.style.display = isImage ? 'block' : 'none';
+            textOnlyFields.style.display = isImage ? 'none' : 'block';
+            imageOnlyFields.style.display = isImage ? 'block' : 'none';
+        }
+
+        function buildElementFromForm() {
+            const isImage = elementTypeInput.value === 'image';
+            const x = parseInt(textXInput.value) || 0;
+            const y = parseInt(textYInput.value) || 0;
+
+            if (isImage) {
+                let widthVal = imageWidthInput.value.trim();
+                let heightVal = imageHeightInput.value.trim();
+
+                if (!widthVal || widthVal === 'auto') {
+                    widthVal = '100';
+                }
+
+                return {
+                    type: 'image',
+                    src: imageSrcInput.value.trim(),
+                    x, y,
+                    width: widthVal,
+                    height: heightVal || 'auto',
+                    fit: imageFitInput.value
+                };
+            }
+
+            return {
+                type: 'text',
+                text: textContentInput.value.trim(),
+                x, y,
+                fontSize: parseInt(fontSizeInput.value) || 24,
+                fontWeight: fontWeightInput.value,
+                fontFamily: fontFamilyInput.value,
+                color: textColorInput.value,
+            };
+        }
+
+        function resetForm() {
+            elementTypeInput.value = 'text';
+            textContentInput.value = '';
+            imageSrcInput.value = '';
+            textXInput.value = '20';
+            textYInput.value = '20';
+            fontSizeInput.value = '24';
+            imageWidthInput.value = 'auto';
+            imageHeightInput.value = 'auto';
+            imageFitInput.value = 'contain';
+            updateFormForType();
+            state.selectedElementIndex = -1;
+            addTextBtn.style.display = 'block';
+            updateElementBtn.style.display = 'none';
+            cancelEditBtn.style.display = 'none';
+            renderTextElements();
+            updateLayerListHighlight();
+        }
+
+        function addTextElement() {
+            const el = buildElementFromForm();
+            if (!el.text && !el.src) return;
+            state.textElements.push(el);
+            renderTextElements();
+            renderTextElementsList();
+            resetForm();
+        }
+
+        function updateElement() {
+            if (state.selectedElementIndex === -1) return;
+            state.textElements[state.selectedElementIndex] = buildElementFromForm();
+            renderTextElements();
+            renderTextElementsList();
+            resetForm();
+        }
+
+        // Corners resize both axes at once; the mid-edge handles resize one axis
+        // only, which is how an overlay is stretched to cover a background whose
+        // aspect ratio differs from the image's own.
+        const CORNER_HANDLES = ['tl', 'tr', 'bl', 'br'];
+        const EDGE_HANDLES = ['t', 'r', 'b', 'l'];
+        const MIN_ELEMENT_SIZE = 20;
+
+        function resizeHandlesMarkup(handles) {
+            return handles
+                .map((h) => `<div class="resize-handle ${h}" data-handle="${h}"></div>`)
+                .join('');
+        }
+
+        // Keeps the canvas preview honest about what the renderer will do.
+        function elementFit(element) {
+            return element && (element.fit === 'cover' || element.fit === 'fill')
+                ? element.fit
+                : 'contain';
+        }
+
+        function renderTextElements() {
+            canvasInner.querySelectorAll('.text-element, .image-element').forEach((el) => el.remove());
+
+            state.textElements.forEach((element, index) => {
+                const isSelected = index === state.selectedElementIndex;
+                const elDiv = document.createElement('div');
+                elDiv.className = `${element.type}-element ${isSelected ? 'selected' : ''}`;
+
+                elDiv.style.left = element.x + 'px';
+                elDiv.style.top = element.y + 'px';
+
+                if (element.type === 'image') {
+                    const w = String(element.width);
+                    const h = String(element.height);
+
+                    if (w !== 'auto' && !w.includes('%')) elDiv.style.width = w + 'px';
+                    if (h !== 'auto' && !h.includes('%')) elDiv.style.height = h + 'px';
+
+                    const placeholderSvg = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSibH_cfxmiganZeY4PcTfIJAABeY6tk_iCr2OAkk8_hlHVz4MFPS9TNJer&s=10";
+                    const imgSrc = (element.src && element.src.includes('{{')) || !element.src
+                        ? placeholderSvg
+                        : element.src;
+
+                    elDiv.innerHTML = `
+            <img src="${imgSrc}" class="layer-img-preview" style="width: 100%; height: 100%; object-fit: ${elementFit(element)}; pointer-events: none;" />
+            ${resizeHandlesMarkup(CORNER_HANDLES.concat(EDGE_HANDLES))}
+          `;
+
+                    const imgEl = elDiv.querySelector('.layer-img-preview');
+                    imgEl.onload = () => {
+                        if (element.height === 'auto' || element.width === 'auto') {
+                            const naturalRatio = imgEl.naturalWidth / (imgEl.naturalHeight || 1);
+
+                            let targetW = 120;
+                            if (element.width !== 'auto') {
+                                targetW = parseFloat(element.width);
+                            }
+
+                            const calculatedH = Math.round(targetW / naturalRatio);
+
+                            elDiv.style.width = targetW + 'px';
+                            elDiv.style.height = calculatedH + 'px';
+
+                            element.width = targetW;
+                            element.height = calculatedH;
+                        }
+                    };
+                }
+                else {
+                    elDiv.style.fontSize = element.fontSize + 'px';
+                    elDiv.style.fontWeight = element.fontWeight;
+                    elDiv.style.fontFamily = element.fontFamily;
+                    elDiv.style.color = element.color;
+                    elDiv.innerHTML = `
+            <div class="text-element-content" style="line-height: 1.0; display: block; padding: 0; margin: 0;">${element.text}</div>
+            ${resizeHandlesMarkup(CORNER_HANDLES)}
+          `;
+                }
+
+                elDiv.addEventListener('mousedown', (e) => {
+                    if (e.target.classList.contains('resize-handle')) {
+                        initResize(e, index, elDiv, e.target.getAttribute('data-handle'));
+                    } else {
+                        state.selectedElementIndex = index;
+                        canvasInner.querySelectorAll('.text-element, .image-element').forEach((el, idx) => {
+                            el.classList.toggle('selected', idx === index);
+                        });
+                        syncFormWithSelected(element);
+                        updateLayerListHighlight();
+                        initDrag(e, index, elDiv);
+                    }
+                });
+
+                canvasInner.appendChild(elDiv);
+            });
+        }
+
+        function initDrag(e, index, elDiv) {
+            e.preventDefault();
+            const element = state.textElements[index];
+            const startX = e.clientX, startY = e.clientY;
+            const origX = element.x, origY = element.y;
+
+            const maxContainerW = canvasInner.offsetWidth;
+            const maxContainerH = canvasInner.offsetHeight;
+
+            function onMouseMove(moveEvt) {
+                const currentElemWidth = elDiv.offsetWidth || 0;
+                const currentElemHeight = elDiv.offsetHeight || 0;
+
+                const maxW = Math.max(0, maxContainerW - currentElemWidth);
+                const maxH = Math.max(0, maxContainerH - currentElemHeight);
+
+                let curX = Math.max(0, Math.min(maxW, origX + (moveEvt.clientX - startX)));
+                let curY = Math.max(0, Math.min(maxH, origY + (moveEvt.clientY - startY)));
+
+                elDiv.style.left = curX + 'px';
+                elDiv.style.top = curY + 'px';
+
+                textXInput.value = Math.round(curX);
+                textYInput.value = Math.round(curY);
+                element.x = Math.round(curX);
+                element.y = Math.round(curY);
+            }
+
+            function onMouseUp() {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+                renderTextElementsList();
+            }
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        }
+
+        function initResize(e, index, elDiv, handleType) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const element = state.textElements[index];
+            const startX = e.clientX;
+            const startY = e.clientY;
+            const startWidth = elDiv.offsetWidth;
+            const startHeight = elDiv.offsetHeight;
+            const startLeft = element.x;
+            const startTop = element.y;
+            const aspectRatio = startWidth / (startHeight || 1);
+            const startFontSize = element.fontSize || 24;
+
+            const maxCanvasW = canvasInner.offsetWidth;
+            const maxCanvasH = canvasInner.offsetHeight;
+
+            function onMouseMove(moveEvt) {
+                const deltaX = moveEvt.clientX - startX;
+                const deltaY = moveEvt.clientY - startY;
+
+                if (element.type === 'text') {
+                    const textFactor = (handleType === 'tl' || handleType === 'bl') ? -0.4 : 0.4;
+                    const nextFontSize = Math.max(8, Math.round(startFontSize + (deltaX * textFactor)));
+                    elDiv.style.fontSize = nextFontSize + 'px';
+                    fontSizeInput.value = nextFontSize;
+                    element.fontSize = nextFontSize;
+                } else if (element.type === 'image') {
+                    // Width and height move independently: a corner drives both,
+                    // a mid-edge handle drives one. Hold Shift on a corner to keep
+                    // the original aspect ratio.
+                    const movesLeftEdge = handleType.indexOf('l') !== -1;
+                    const movesTopEdge = handleType.indexOf('t') !== -1;
+                    const changesWidth = movesLeftEdge || handleType.indexOf('r') !== -1;
+                    const changesHeight = movesTopEdge || handleType.indexOf('b') !== -1;
+                    const lockAspect = moveEvt.shiftKey && changesWidth && changesHeight;
+
+                    let newWidth = startWidth;
+                    let newHeight = startHeight;
+
+                    if (changesWidth) newWidth = movesLeftEdge ? startWidth - deltaX : startWidth + deltaX;
+                    if (changesHeight) newHeight = movesTopEdge ? startHeight - deltaY : startHeight + deltaY;
+
+                    if (lockAspect) {
+                        if (Math.abs(deltaX) >= Math.abs(deltaY)) newHeight = newWidth / aspectRatio;
+                        else newWidth = newHeight * aspectRatio;
+                    }
+
+                    newWidth = Math.max(MIN_ELEMENT_SIZE, newWidth);
+                    newHeight = Math.max(MIN_ELEMENT_SIZE, newHeight);
+
+                    // Anchor the opposite edge, then keep the box inside the canvas.
+                    let newLeft = movesLeftEdge ? startLeft + (startWidth - newWidth) : startLeft;
+                    let newTop = movesTopEdge ? startTop + (startHeight - newHeight) : startTop;
+
+                    if (newLeft < 0) {
+                        newWidth += newLeft;
+                        newLeft = 0;
+                    }
+                    if (newTop < 0) {
+                        newHeight += newTop;
+                        newTop = 0;
+                    }
+                    if (newLeft + newWidth > maxCanvasW) newWidth = maxCanvasW - newLeft;
+                    if (newTop + newHeight > maxCanvasH) newHeight = maxCanvasH - newTop;
+
+                    newWidth = Math.max(MIN_ELEMENT_SIZE, newWidth);
+                    newHeight = Math.max(MIN_ELEMENT_SIZE, newHeight);
+
+                    elDiv.style.width = Math.round(newWidth) + 'px';
+                    elDiv.style.height = Math.round(newHeight) + 'px';
+                    elDiv.style.left = Math.round(newLeft) + 'px';
+                    elDiv.style.top = Math.round(newTop) + 'px';
+
+                    imageWidthInput.value = Math.round(newWidth);
+                    imageHeightInput.value = Math.round(newHeight);
+                    textXInput.value = Math.round(newLeft);
+                    textYInput.value = Math.round(newTop);
+
+                    element.width = Math.round(newWidth);
+                    element.height = Math.round(newHeight);
+                    element.x = Math.round(newLeft);
+                    element.y = Math.round(newTop);
+                }
+            }
+
+            function onMouseUp() {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+                renderTextElements();
+                renderTextElementsList();
+            }
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        }
+
+        function syncFormWithSelected(element) {
+            elementTypeInput.value = element.type;
+            updateFormForType();
+
+            textXInput.value = element.x;
+            textYInput.value = element.y;
+
+            if (element.type === 'image') {
+                imageSrcInput.value = element.src;
+                imageWidthInput.value = element.width;
+                imageHeightInput.value = element.height;
+                imageFitInput.value = elementFit(element);
+            } else {
+                textContentInput.value = element.text;
+                fontSizeInput.value = element.fontSize;
+                fontWeightInput.value = element.fontWeight;
+                fontFamilyInput.value = element.fontFamily;
+                textColorInput.value = element.color;
+            }
+
+            addTextBtn.style.display = 'none';
+            updateElementBtn.style.display = 'block';
+            cancelEditBtn.style.display = 'block';
+        }
+
+        function updateLayerListHighlight() {
+            const items = textElementsList.querySelectorAll('.layer-card');
+            items.forEach((item, idx) => {
+                const trueIndex = state.textElements.length - 1 - idx;
+                item.classList.toggle('active', trueIndex === state.selectedElementIndex);
+            });
+        }
+
+        function renderTextElementsList() {
+            textElementsList.innerHTML = '';
+
+            if (state.textElements.length === 0) {
+                textElementsList.innerHTML = '<p style="color: var(--text-muted); font-size: 12px; text-align: center; padding: 12px 0;">No active layers added</p>';
+                return;
+            }
+
+            for (let index = state.textElements.length - 1; index >= 0; index--) {
+                const element = state.textElements[index];
+                const isSelected = index === state.selectedElementIndex;
+
+                const card = document.createElement('div');
+                card.className = `layer-card ${isSelected ? 'active' : ''}`;
+
+                let thumbContent = element.type === 'image'
+                    ? `<img src="${element.src.includes('{{') ? '' : element.src}" />`
+                    : `<div style="font-size:20px; font-weight:${element.fontWeight}; color:${element.color}">${element.text || 'Text'}</div>`;
+
+                card.innerHTML = `
+        <div class="layer-thumb">${thumbContent}</div>
+        <div class="layer-footer">
+            <span>${element.type === 'image' ? 'Image layer' : 'Text layer'}</span>
+            <button class="btn-delete-layer" onclick="deleteTextElement(event, ${index})">Delete</button>
+        </div>
+        `;
+
+                card.addEventListener('click', () => {
+                    state.selectedElementIndex = index;
+                    syncFormWithSelected(element);
+                    renderTextElements();
+                    updateLayerListHighlight();
+                });
+
+                textElementsList.appendChild(card);
+            }
+        }
+
+        window.deleteTextElement = function (e, index) {
+            e.stopPropagation();
+            state.textElements.splice(index, 1);
+            resetForm();
+            renderTextElementsList();
+        };
+
+        async function saveTemplate() {
+            const templateId = state.templateId || templateIdInput.value.trim();
+            if (!templateId || !state.backgroundUrl) return showAlert('Missing background URL', 'error');
+
+            try {
+                const response = await apiFetch('/api/v1/templates', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ templateId, backgroundUrl: state.backgroundUrl, textElements: state.textElements })
+                });
+                if (response.ok) { showAlert(`Saved Template ${templateId}!`, 'success'); }
+            } catch (err) { showAlert('Error saving template', 'error'); }
+        }
+
+        function resetStudioForNewTemplate() {
+            fetchNextTemplateId();
+            bgUrlInput.value = '';
+            state.backgroundUrl = '';
+            state.textElements = [];
+            canvasInner.className = 'canvas-inner empty';
+            canvasInner.innerHTML = 'Enter a background image URL to display workspace';
+            renderTextElementsList();
+            codeOutput.style.display = 'none';
+            showAlert('Workspace reset for new template', 'info');
+        }
+
+        function generateRenderUrl() {
+            const templateId = state.templateId || templateIdInput.value.trim();
+            if (!templateId) return showAlert('Save template first', 'error');
+
+            const foundPlaceholders = new Set();
+            const placeholderRegex = /\{\{([\w\-]+)\}\}/g;
+
+            if (state.backgroundUrl) {
+                let match;
+                while ((match = placeholderRegex.exec(state.backgroundUrl)) !== null) foundPlaceholders.add(match[1]);
+            }
+
+            (state.textElements || []).forEach(el => {
+                const contentToScan = el.type === 'image' ? (el.src || '') : (el.text || '');
+                let match;
+                while ((match = placeholderRegex.exec(contentToScan)) !== null) foundPlaceholders.add(match[1]);
+            });
+
+            let url = `/api/v1/render/${templateId}`;
+            const params = new URLSearchParams();
+            foundPlaceholders.forEach((v) => params.append(v, `enter_${v}`));
+
+            const queryString = params.toString();
+            if (queryString) url += '?' + queryString;
+
+            generatedUrl.textContent = `${window.location.origin}${url}`;
+            codeOutput.style.display = 'block';
+        }
+
+        // Event Bindings
+        bgUrlInput.addEventListener('blur', updateCanvasBackground);
+        elementTypeInput.addEventListener('change', updateFormForType);
+
+        imageFitInput.addEventListener('change', () => {
+            const element = state.textElements[state.selectedElementIndex];
+            if (!element || element.type !== 'image') return;
+            element.fit = imageFitInput.value;
+            renderTextElements();
+        });
+
+        // One click to stretch the selected overlay across the whole background.
+        fillBackgroundBtn.addEventListener('click', () => {
+            if (canvasInner.classList.contains('empty')) {
+                showAlert('Load a background image URL first', 'error');
+                return;
+            }
+
+            const width = Math.round(canvasInner.offsetWidth);
+            const height = Math.round(canvasInner.offsetHeight);
+
+            textXInput.value = 0;
+            textYInput.value = 0;
+            imageWidthInput.value = width;
+            imageHeightInput.value = height;
+            imageFitInput.value = 'cover';
+
+            const element = state.textElements[state.selectedElementIndex];
+            if (element && element.type === 'image') {
+                element.x = 0;
+                element.y = 0;
+                element.width = width;
+                element.height = height;
+                element.fit = 'cover';
+                renderTextElements();
+                renderTextElementsList();
+            }
+        });
+        addTextBtn.addEventListener('click', addTextElement);
+        updateElementBtn.addEventListener('click', updateElement);
+        cancelEditBtn.addEventListener('click', resetForm);
+        saveTemplateBtn.addEventListener('click', saveTemplate);
+        newTemplateBtn.addEventListener('click', resetStudioForNewTemplate);
+        generateCodeBtn.addEventListener('click', generateRenderUrl);
+        copyCodeBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(generatedUrl.textContent);
+            showAlert('Copied URL!', 'success');
+        });
+
+        // Initial Load
+        fetchNextTemplateId();
+        updateFormForType();
+
+        // The library may render before /me resolves; redraw once the role is known
+        document.addEventListener('shell:user', () => {
+            if (document.getElementById('pageTemplates').classList.contains('active')) {
+                fetchSavedTemplates();
+            }
+        });
+
+        // Open the section named in the URL (the nav menu links here with ?view=)
+        if (new URLSearchParams(window.location.search).get('view') === 'templates') {
+            switchTab('templates');
+        }
+    </script>
+</body>
+
+</html>

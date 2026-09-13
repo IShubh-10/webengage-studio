@@ -1,0 +1,273 @@
+/* ============================================================================
+   Webengage Studio — shared theme
+
+   The flat, light look: white panels on a light slate canvas, hairline borders,
+   restrained shadows. WebEngage blue marks what is active or primary; green is
+   the save/confirm colour the studio has always used. Icons are stroked SVG,
+   never emoji.
+   ========================================================================== */
+
+:root {
+    --primary: #0154a5;
+    --primary-hover: #013f7d;
+    --primary-wash: #e6f0fa;
+    /* Confirm/save actions: an azure sibling of the brand blue rather than the
+       old green, so the interface stays on one scheme. Lighter than --primary
+       so a save action still reads as distinct from a navy primary button, and
+       dark enough to carry white text (contrast ~4.9:1). */
+    --success: #0b6fc4;
+    --success-hover: #0a5798;
+
+    --bg-main: #f1f5f9;
+    --panel-bg: #ffffff;
+    --panel-alt: #f8fafc;
+    --sunken: #e2e8f0;
+
+    --text-main: #0f172a;
+    --text-muted: #64748b;
+    --text-faint: #94a3b8;
+    --border-color: #e2e8f0;
+    --border-strong: #cbd5e1;
+
+    --danger: #b91c1c;
+    --danger-wash: #fef2f2;
+    --danger-border: #fecaca;
+    --ok: #065f46;
+    --ok-wash: #ecfdf5;
+    --ok-border: #a7f3d0;
+
+    --radius: 10px;
+    --radius-sm: 6px;
+    --radius-pill: 999px;
+
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.05);
+    --shadow-raised: 0 4px 14px -4px rgba(15, 23, 42, 0.16);
+    --shadow-menu: 0 12px 28px -10px rgba(15, 23, 42, 0.28);
+
+    --ease: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: math;
+    background: var(--bg-main);
+    color: var(--text-main);
+}
+
+/* ---------------------------------------------------------------- surfaces */
+
+.card {
+    background: var(--panel-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+}
+
+/* ----------------------------------------------------------------- buttons */
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 9px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: #ffffff;
+    color: #334155;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.btn:hover:not(:disabled) {
+    background: var(--panel-alt);
+    border-color: var(--border-strong);
+}
+
+.btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.btn.primary {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #ffffff;
+}
+
+.btn.primary:hover:not(:disabled) {
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
+}
+
+.btn.success {
+    background: var(--success);
+    border-color: var(--success);
+    color: #ffffff;
+}
+
+.btn.success:hover:not(:disabled) {
+    background: var(--success-hover);
+    border-color: var(--success-hover);
+}
+
+.btn.danger:hover:not(:disabled) {
+    background: var(--danger-wash);
+    border-color: var(--danger-border);
+    color: var(--danger);
+}
+
+.btn.block {
+    width: 100%;
+}
+
+.btn.small {
+    padding: 6px 11px;
+    font-size: 12px;
+}
+
+.icon-btn {
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: #ffffff;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.icon-btn:hover {
+    background: var(--panel-alt);
+    border-color: var(--border-strong);
+    color: var(--primary);
+}
+
+/* ------------------------------------------------------------------- forms */
+
+input[type='text'],
+input[type='email'],
+input[type='tel'],
+input[type='password'],
+input[type='number'],
+select,
+textarea {
+    width: 100%;
+    padding: 8px 11px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: #ffffff;
+    color: var(--text-main);
+    font-family: inherit;
+    font-size: 13px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input::placeholder,
+textarea::placeholder {
+    color: var(--text-faint);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(1, 84, 165, 0.12);
+}
+
+input:disabled,
+textarea:disabled {
+    background: var(--sunken);
+    color: var(--text-muted);
+    cursor: not-allowed;
+}
+
+input[type='color'] {
+    width: 44px;
+    height: 32px;
+    padding: 3px;
+    cursor: pointer;
+}
+
+input[type='color']::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+
+input[type='color']::-webkit-color-swatch {
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+label,
+.label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: #475569;
+}
+
+/* ------------------------------------------------------------------ badges */
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    background: var(--sunken);
+    color: #475569;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+}
+
+.badge.accent {
+    background: var(--primary-wash);
+    color: var(--primary);
+}
+
+.badge.ok {
+    background: var(--ok-wash);
+    color: var(--ok);
+}
+
+/* Inline SVG icons: stroked, currentColor, never filled */
+.icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+}
+
+.icon.lg {
+    width: 22px;
+    height: 22px;
+}
+
+.icon.sm {
+    width: 14px;
+    height: 14px;
+}

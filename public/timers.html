@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png"
+        href="https://afiles.webengage.com/76aba26/8dd7acac-b831-43c8-b1c1-e71673271986.avif" />
+    <title>Countdown Timers · Webengage Creative Studio</title>
+    <link rel="stylesheet" href="/assets/theme.css" />
+    <link rel="stylesheet" href="/assets/shell.css" />
+    <script>
+        // Both sections are views inside this page, so the profile menu hands
+        // them back here instead of navigating away.
+        window.STUDIO_SHELL = {
+            active: 'timers',
+            section: new URLSearchParams(window.location.search).get('view') === 'library'
+                ? 'library'
+                : 'builder',
+            onSection: (key) => switchView(key),
+        };
+    </script>
+    <style>
+        .view-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .page-view {
+            display: none;
+            height: 100%;
+            width: 100%;
+        }
+
+        .page-view.active {
+            display: flex;
+            overflow-y: auto;
+        }
+
+        .builder-layout {
+            display: grid;
+            grid-template-columns: 330px 1fr 320px;
+            gap: 16px;
+            padding: 16px;
+            height: 92vh;
+            width: 100%;
+        }
+
+        @media (max-width: 1200px) {
+            .builder-layout {
+                grid-template-columns: 1fr;
+                height: auto;
+            }
+        }
+
+        .panel {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-card);
+        }
+
+        .panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--panel-alt);
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .panel-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 14px;
+        }
+
+        /* Collapsible groups keep a long form readable ------------------- */
+        .group {
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 12px;
+            margin-bottom: 12px;
+        }
+
+        .group:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+
+        .group-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            padding: 0 0 10px;
+            border: none;
+            background: none;
+            color: var(--text-main);
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+            cursor: pointer;
+        }
+
+        .group-title .icon {
+            color: var(--text-faint);
+            transition: transform 0.18s var(--ease);
+        }
+
+        .group.collapsed .group-body {
+            display: none;
+        }
+
+        .group.collapsed .group-title .icon {
+            transform: rotate(-90deg);
+        }
+
+        .field {
+            margin-bottom: 11px;
+        }
+
+        .field:last-child {
+            margin-bottom: 0;
+        }
+
+        .field-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .field-row.three {
+            grid-template-columns: 1fr 1fr 1fr;
+        }
+
+        .inline {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .inline input[type='color'] {
+            flex: 0 0 auto;
+        }
+
+        .hint {
+            margin-top: 5px;
+            font-size: 11.5px;
+            line-height: 1.55;
+            color: var(--text-muted);
+        }
+
+        .check {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            letter-spacing: 0;
+            text-transform: none;
+            color: var(--text-main);
+            cursor: pointer;
+        }
+
+        .check input {
+            width: 15px;
+            height: 15px;
+            margin: 0;
+            accent-color: var(--primary);
+            cursor: pointer;
+        }
+
+        .unit-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 4px 12px;
+        }
+
+        /* Canvas --------------------------------------------------------- */
+        .canvas-panel {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-card);
+        }
+
+        .canvas-body {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            padding: 22px;
+            overflow: auto;
+            background:
+                linear-gradient(45deg, #eef2f6 25%, transparent 25%) -8px 0/16px 16px,
+                linear-gradient(-45deg, #eef2f6 25%, transparent 25%) -8px 0/16px 16px,
+                linear-gradient(45deg, transparent 75%, #eef2f6 75%) 0 0/16px 16px,
+                linear-gradient(-45deg, transparent 75%, #eef2f6 75%) 0 0/16px 16px,
+                #f8fafc;
+        }
+
+        .stage {
+            position: relative;
+            max-width: 100%;
+            line-height: 0;
+            box-shadow: var(--shadow-raised);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .stage img {
+            display: block;
+            max-width: 100%;
+            height: auto;
+        }
+
+        /* The draggable handle sits exactly over the block the server measured */
+        .block-handle {
+            position: absolute;
+            border: 1.5px dashed rgba(255, 255, 255, 0.9);
+            outline: 1.5px dashed rgba(15, 23, 42, 0.55);
+            border-radius: 3px;
+            cursor: grab;
+            transition: background 0.15s ease;
+        }
+
+        .block-handle:hover {
+            background: rgba(1, 84, 165, 0.18);
+        }
+
+        .block-handle.dragging {
+            cursor: grabbing;
+            background: rgba(1, 84, 165, 0.24);
+        }
+
+        .stage.busy::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.45);
+        }
+
+        .canvas-meta {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .canvas-empty {
+            max-width: 380px;
+            text-align: center;
+            font-size: 13px;
+            line-height: 1.7;
+            color: var(--text-muted);
+        }
+
+        /* Embed panel ---------------------------------------------------- */
+        .code-box {
+            width: 100%;
+            min-height: 92px;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            background: var(--panel-alt);
+            color: #334155;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 11.5px;
+            line-height: 1.6;
+            resize: vertical;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .param-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11.5px;
+        }
+
+        .param-table th,
+        .param-table td {
+            padding: 6px 6px 6px 0;
+            border-bottom: 1px solid var(--border-color);
+            text-align: left;
+            vertical-align: top;
+        }
+
+        .param-table th {
+            color: var(--text-muted);
+            font-weight: 700;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+            font-size: 10px;
+        }
+
+        .param-table code {
+            padding: 1px 4px;
+            border-radius: 3px;
+            background: var(--panel-alt);
+            font-size: 11px;
+            white-space: nowrap;
+        }
+
+        .btn-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-row .btn {
+            flex: 1;
+        }
+
+        /* Library -------------------------------------------------------- */
+        .library {
+            width: 100%;
+            padding: 20px;
+        }
+
+        .library-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .library-head h2 {
+            font-size: 20px;
+        }
+
+        .timer-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 16px;
+        }
+
+        .timer-card {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-card);
+        }
+
+        .timer-thumb {
+            display: block;
+            width: 100%;
+            aspect-ratio: 16 / 7;
+            object-fit: cover;
+            background: var(--sunken);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .timer-card-body {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding: 14px;
+        }
+
+        .timer-card-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .timer-card-title h3 {
+            font-size: 15px;
+        }
+
+        .timer-meta {
+            font-size: 12px;
+            line-height: 1.6;
+            color: var(--text-muted);
+        }
+
+        .empty-state {
+            padding: 48px 20px;
+            text-align: center;
+            font-size: 13.5px;
+            color: var(--text-muted);
+        }
+
+        /* Toast ---------------------------------------------------------- */
+        .toast {
+            position: fixed;
+            right: 20px;
+            bottom: 20px;
+            z-index: 60;
+            display: none;
+            max-width: 340px;
+            padding: 11px 15px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            background: var(--panel-bg);
+            box-shadow: var(--shadow-menu);
+            font-size: 13px;
+        }
+
+        .toast.show {
+            display: block;
+        }
+
+        .toast.error {
+            border-color: var(--danger-border);
+            background: var(--danger-wash);
+            color: var(--danger);
+        }
+
+        .toast.ok {
+            border-color: var(--ok-border);
+            background: var(--ok-wash);
+            color: var(--ok);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app-shell">
+        <header class="topnav">
+            <a class="brand" href="/tools">
+                <h1>Webengage<span>Studio</span></h1>
+            </a>
+            <div class="nav-right">
+                <div id="shellUser"></div>
+            </div>
+        </header>
+
+        <div class="app-content">
+            <div class="view-container">
+
+                <!-- ================================================ BUILDER -->
+                <div class="page-view active" id="view-builder">
+                    <div class="builder-layout">
+
+                        <!-- ------------------------------------- settings -->
+                        <div class="panel">
+                            <div class="panel-header">
+                                <span>Timer Setup</span>
+                                <span class="badge accent" id="timerIdBadge">TMR-01</span>
+                            </div>
+                            <div class="panel-body">
+
+                                <div class="group" data-group="creative">
+                                    <button class="group-title" type="button">Creative<span
+                                            id="capCreative"></span></button>
+                                    <div class="group-body">
+                                        <div class="field">
+                                            <label for="sourceType">Where the artwork comes from</label>
+                                            <select id="sourceType">
+                                                <option value="template">A studio template</option>
+                                                <option value="url">An image URL</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="field" id="templateField">
+                                            <label for="templateId">Template</label>
+                                            <select id="templateId">
+                                                <option value="">Loading…</option>
+                                            </select>
+                                            <p class="hint">Design the creative in Dynamic Images first. Its
+                                                <code>{{placeholders}}</code> still work — pass them on the timer URL and
+                                                the artwork is personalised too.
+                                            </p>
+                                        </div>
+
+                                        <div class="field" id="urlField" style="display: none;">
+                                            <label for="backgroundUrl">Image URL</label>
+                                            <input type="text" id="backgroundUrl"
+                                                placeholder="https://cdn.example.com/sale-banner.png" />
+                                        </div>
+
+                                        <div class="field-row">
+                                            <div class="field">
+                                                <label for="canvasWidth">Width (px)</label>
+                                                <input type="number" id="canvasWidth" min="0" max="1200" step="10"
+                                                    placeholder="native" />
+                                            </div>
+                                            <div class="field">
+                                                <label for="background">Flatten onto</label>
+                                                <div class="inline">
+                                                    <input type="color" id="background" value="#ffffff" />
+                                                    <input type="text" id="backgroundHex" value="#ffffff" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <p class="hint">600px is the safe width for email. Transparent artwork is
+                                            flattened onto the colour above, because GIF transparency is unreliable
+                                            across clients.</p>
+                                    </div>
+                                </div>
+
+                                <div class="group" data-group="deadline">
+                                    <button class="group-title" type="button">Deadline<span
+                                            id="capDeadline"></span></button>
+                                    <div class="group-body">
+                                        <div class="field">
+                                            <label for="mode">Counting down to</label>
+                                            <select id="mode">
+                                                <option value="fixed">A fixed date and time</option>
+                                                <option value="evergreen">A window from each recipient's first open
+                                                </option>
+                                            </select>
+                                        </div>
+
+                                        <div id="fixedFields">
+                                            <div class="field">
+                                                <label for="endAt">Ends at</label>
+                                                <input type="datetime-local" id="endAt" step="1" />
+                                            </div>
+                                            <div class="field">
+                                                <label for="timezone">In this timezone</label>
+                                                <select id="timezone"></select>
+                                                <p class="hint">The deadline is read as wall-clock time in this zone, so
+                                                    daylight saving is handled for you.</p>
+                                            </div>
+                                        </div>
+
+                                        <div id="evergreenFields" style="display: none;">
+                                            <div class="field">
+                                                <label for="evergreenHours">Window (hours)</label>
+                                                <input type="number" id="evergreenHours" min="1" max="2160" value="24" />
+                                                <p class="hint">Add <code>?uid={{user.id}}</code> to the image URL. The
+                                                    first open records the start; later opens count down from it.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="group" data-group="clock">
+                                    <button class="group-title" type="button">Clock<span id="capClock"></span></button>
+                                    <div class="group-body">
+                                        <div class="field">
+                                            <label>Units shown</label>
+                                            <div class="unit-grid">
+                                                <label class="check"><input type="checkbox" data-unit="days"
+                                                        checked />Days</label>
+                                                <label class="check"><input type="checkbox" data-unit="hours"
+                                                        checked />Hours</label>
+                                                <label class="check"><input type="checkbox" data-unit="minutes"
+                                                        checked />Minutes</label>
+                                                <label class="check"><input type="checkbox" data-unit="seconds"
+                                                        checked />Seconds</label>
+                                            </div>
+                                            <p class="hint">The largest unit shown absorbs everything above it — drop
+                                                Days and 3 days becomes 72 hours.</p>
+                                        </div>
+
+                                        <div class="field">
+                                            <label for="fontFamily">Font</label>
+                                            <select id="fontFamily">
+                                                <option>Arial</option>
+                                                <option>Helvetica</option>
+                                                <option>Verdana</option>
+                                                <option>Tahoma</option>
+                                                <option>Trebuchet MS</option>
+                                                <option>Georgia</option>
+                                                <option>Times New Roman</option>
+                                                <option>Courier New</option>
+                                                <option>Impact</option>
+                                                <option>DejaVu Sans</option>
+                                                <option>Liberation Sans</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="field-row three">
+                                            <div class="field">
+                                                <label for="fontSize">Size</label>
+                                                <input type="number" id="fontSize" min="8" max="400" value="48" />
+                                            </div>
+                                            <div class="field">
+                                                <label for="fontWeight">Weight</label>
+                                                <select id="fontWeight">
+                                                    <option value="bold">Bold</option>
+                                                    <option value="normal">Normal</option>
+                                                    <option value="600">600</option>
+                                                    <option value="900">900</option>
+                                                </select>
+                                            </div>
+                                            <div class="field">
+                                                <label for="gap">Gap</label>
+                                                <input type="number" id="gap" min="0" max="200" value="10" />
+                                            </div>
+                                        </div>
+
+                                        <div class="field-row">
+                                            <div class="field">
+                                                <label for="color">Digit colour</label>
+                                                <div class="inline">
+                                                    <input type="color" id="color" value="#ffffff" />
+                                                    <input type="text" id="colorHex" value="#ffffff" />
+                                                </div>
+                                            </div>
+                                            <div class="field">
+                                                <label for="separator">Separator</label>
+                                                <input type="text" id="separator" maxlength="3" value=":" />
+                                            </div>
+                                        </div>
+
+                                        <div class="field">
+                                            <label for="plateMode">Backing plate</label>
+                                            <select id="plateMode">
+                                                <option value="none">None</option>
+                                                <option value="block">Behind the whole clock</option>
+                                                <option value="unit">Behind each unit</option>
+                                            </select>
+                                        </div>
+
+                                        <div id="plateFields" style="display: none;">
+                                            <div class="field-row">
+                                                <div class="field">
+                                                    <label for="plateColor">Plate colour</label>
+                                                    <div class="inline">
+                                                        <input type="color" id="plateColor" value="#000000" />
+                                                        <input type="text" id="plateColorHex" value="#000000" />
+                                                    </div>
+                                                </div>
+                                                <div class="field">
+                                                    <label for="plateOpacity">Opacity</label>
+                                                    <input type="number" id="plateOpacity" min="0" max="1" step="0.05"
+                                                        value="0.45" />
+                                                </div>
+                                            </div>
+                                            <div class="field-row three">
+                                                <div class="field">
+                                                    <label for="plateRadius">Radius</label>
+                                                    <input type="number" id="plateRadius" min="0" max="200"
+                                                        value="10" />
+                                                </div>
+                                                <div class="field">
+                                                    <label for="platePadX">Pad X</label>
+                                                    <input type="number" id="platePadX" min="0" max="400" value="18" />
+                                                </div>
+                                                <div class="field">
+                                                    <label for="platePadY">Pad Y</label>
+                                                    <input type="number" id="platePadY" min="0" max="400" value="14" />
+                                                </div>
+                                            </div>
+                                            <p class="hint" id="plateHint"></p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="group collapsed" data-group="labels">
+                                    <button class="group-title" type="button">Labels<span
+                                            id="capLabels"></span></button>
+                                    <div class="group-body">
+                                        <label class="check"><input type="checkbox" id="showLabels" checked />Show unit
+                                            labels</label>
+
+                                        <div id="labelFields">
+                                            <div class="field-row">
+                                                <div class="field">
+                                                    <label for="labelDays">Days</label>
+                                                    <input type="text" id="labelDays" value="DAYS" maxlength="12" />
+                                                </div>
+                                                <div class="field">
+                                                    <label for="labelHours">Hours</label>
+                                                    <input type="text" id="labelHours" value="HOURS" maxlength="12" />
+                                                </div>
+                                            </div>
+                                            <div class="field-row">
+                                                <div class="field">
+                                                    <label for="labelMinutes">Minutes</label>
+                                                    <input type="text" id="labelMinutes" value="MINS" maxlength="12" />
+                                                </div>
+                                                <div class="field">
+                                                    <label for="labelSeconds">Seconds</label>
+                                                    <input type="text" id="labelSeconds" value="SECS" maxlength="12" />
+                                                </div>
+                                            </div>
+                                            <div class="field-row three">
+                                                <div class="field">
+                                                    <label for="labelFontSize">Size</label>
+                                                    <input type="number" id="labelFontSize" min="6" max="120"
+                                                        value="13" />
+                                                </div>
+                                                <div class="field">
+                                                    <label for="labelGap">Gap</label>
+                                                    <input type="number" id="labelGap" min="0" max="120" value="8" />
+                                                </div>
+                                                <div class="field">
+                                                    <label for="labelColor">Colour</label>
+                                                    <input type="color" id="labelColor" value="#ffffff" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="group collapsed" data-group="expired">
+                                    <button class="group-title" type="button">After it ends<span
+                                            id="capExpired"></span></button>
+                                    <div class="group-body">
+                                        <div class="field">
+                                            <label for="expiredMode">When the deadline has passed</label>
+                                            <select id="expiredMode">
+                                                <option value="message">Show a message</option>
+                                                <option value="image">Show a different image</option>
+                                                <option value="freeze">Freeze on zeros</option>
+                                                <option value="hide">Show nothing</option>
+                                            </select>
+                                        </div>
+
+                                        <div id="expiredMessageFields">
+                                            <div class="field">
+                                                <label for="expiredText">Message</label>
+                                                <input type="text" id="expiredText" value="SALE ENDED" maxlength="80" />
+                                            </div>
+                                            <div class="field-row">
+                                                <div class="field">
+                                                    <label for="expiredFontSize">Size</label>
+                                                    <input type="number" id="expiredFontSize" min="8" max="400"
+                                                        value="42" />
+                                                </div>
+                                                <div class="field">
+                                                    <label for="expiredColor">Colour</label>
+                                                    <input type="color" id="expiredColor" value="#ffffff" />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="field" id="expiredImageField" style="display: none;">
+                                            <label for="expiredImageUrl">Image URL</label>
+                                            <input type="text" id="expiredImageUrl"
+                                                placeholder="https://cdn.example.com/sale-over.png" />
+                                        </div>
+                                        <p class="hint">The countdown never goes below zero. It swaps to this the moment
+                                            the deadline passes — including mid-animation, if it runs out while someone
+                                            is looking at it.</p>
+                                    </div>
+                                </div>
+
+                                <div class="group collapsed" data-group="advanced">
+                                    <button class="group-title" type="button">Advanced<span
+                                            id="capAdvanced"></span></button>
+                                    <div class="group-body">
+                                        <div class="field-row">
+                                            <div class="field">
+                                                <label for="frames">Frames</label>
+                                                <input type="number" id="frames" min="1" max="120" value="60" />
+                                            </div>
+                                            <div class="field">
+                                                <label for="colors">Colours</label>
+                                                <input type="number" id="colors" min="8" max="256" value="256" />
+                                            </div>
+                                        </div>
+                                        <p class="hint">One frame per second, so 60 frames is a minute of animation. Drop
+                                            the palette below 256 for a smaller file on flat artwork; leave it at 256 for
+                                            photographs.</p>
+
+                                        <label class="check" style="margin-top: 12px;"><input type="checkbox"
+                                                id="loopEnabled" />Loop forever</label>
+                                        <p class="hint" id="loopHint"></p>
+                                    </div>
+                                </div>
+
+                            </div>
+                        </div>
+
+                        <!-- --------------------------------------- canvas -->
+                        <div class="canvas-panel">
+                            <div class="panel-header">
+                                <span>Preview</span>
+                                <div class="inline">
+                                    <button class="btn small" id="animateBtn" type="button">Play the real GIF</button>
+                                    <button class="btn small" id="refreshBtn" type="button"></button>
+                                </div>
+                            </div>
+                            <div class="canvas-body">
+                                <div class="stage" id="stage" style="display: none;">
+                                    <img id="previewImage" alt="Timer preview" />
+                                    <div class="block-handle" id="blockHandle"></div>
+                                </div>
+                                <p class="canvas-empty" id="canvasEmpty">Pick a creative to start. Drag the dashed box
+                                    over the preview to place the clock.</p>
+                                <div class="canvas-meta" id="canvasMeta"></div>
+                            </div>
+                        </div>
+
+                        <!-- ---------------------------------------- embed -->
+                        <div class="panel">
+                            <div class="panel-header"><span>Save &amp; Embed</span></div>
+                            <div class="panel-body">
+                                <div class="field">
+                                    <label for="timerId">Timer ID</label>
+                                    <input type="text" id="timerId" disabled/>
+                                </div>
+                                <div class="field">
+                                    <label for="timerName">Name</label>
+                                    <input type="text" id="timerName" placeholder="Diwali sale — 48h" />
+                                </div>
+
+                                <div class="btn-row" style="margin: 14px 0;">
+                                    <button class="btn success" id="saveBtn" type="button">Save timer</button>
+                                    <button class="btn" id="newBtn" type="button">New</button>
+                                </div>
+
+                                <div class="field">
+                                    <label>Paste into your email HTML</label>
+                                    <textarea class="code-box" id="embedCode" readonly></textarea>
+                                    <div class="btn-row" style="margin-top: 8px;">
+                                        <button class="btn small" id="copyEmbedBtn" type="button">Copy snippet</button>
+                                        <button class="btn small" id="copyUrlBtn" type="button">Copy URL</button>
+                                    </div>
+                                    <p class="hint">Save the timer first — the URL only works once it exists.</p>
+                                </div>
+
+                                <div class="field" style="margin-top: 18px;">
+                                    <label>Per-recipient overrides</label>
+                                    <table class="param-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Parameter</th>
+                                                <th>What it does</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td><code>?end=</code></td>
+                                                <td>A different deadline for this send. Epoch seconds, or
+                                                    <code>2026-12-31 23:59:59</code>.</td>
+                                            </tr>
+                                            <tr>
+                                                <td><code>?tz=</code></td>
+                                                <td>Read <code>end</code> in this zone. Merge the recipient's own:
+                                                    <code>tz={{user.timezone}}</code>.</td>
+                                            </tr>
+                                            <tr>
+                                                <td><code>?uid=</code></td>
+                                                <td>Required for an evergreen timer — it is what the start time is
+                                                    remembered against.</td>
+                                            </tr>
+                                            <tr>
+                                                <td><code>?anything=</code></td>
+                                                <td>Fills a <code>{{placeholder}}</code> in the creative, exactly as
+                                                    Dynamic Images does.</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- ================================================ LIBRARY -->
+                <div class="page-view" id="view-library">
+                    <div class="library">
+                        <div class="library-head">
+                            <div>
+                                <h2>Timer Library</h2>
+                                <p class="hint">Every saved countdown. Copy a URL straight into a campaign.</p>
+                            </div>
+                            <button class="btn" id="reloadLibraryBtn" type="button">Reload</button>
+                        </div>
+                        <div class="timer-grid" id="timerGrid"></div>
+                        <div class="empty-state" id="libraryEmpty" style="display: none;">
+                            No timers yet. Build one in the Timer Builder.
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script src="/assets/shell.js"></script>
+    <script src="/assets/timers.js"></script>
+</body>
+
+</html>
