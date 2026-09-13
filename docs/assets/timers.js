@@ -431,7 +431,7 @@
     /* -------------------------------------------------------------- embed */
 
     function timerUrl(timerId) {
-        return `${window.location.origin}/api/v1/timer/${timerId}.gif`;
+        return publicUrl(`/api/v1/timer/${timerId}.gif`);
     }
 
     function updateEmbed() {

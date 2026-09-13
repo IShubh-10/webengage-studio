@@ -7,6 +7,7 @@
     <link rel="icon" type="image/png"
         href="https://afiles.webengage.com/76aba26/8dd7acac-b831-43c8-b1c1-e71673271986.avif" />
     <title>Dynamic Images · Webengage Creative Studio</title>
+    <script src="/assets/origin.js"></script>
     <link rel="stylesheet" href="/assets/theme.css" />
     <link rel="stylesheet" href="/assets/shell.css" />
     <script>
@@ -965,7 +966,7 @@
                 });
 
                 // Build URL with query parameters
-                let url = `${window.location.origin}/api/v1/render/${templateId}`;
+                let url = publicUrl(`/api/v1/render/${templateId}`);
                 const params = new URLSearchParams();
                 foundPlaceholders.forEach((v) => params.append(v, `enter_${v}`));
 
@@ -1491,7 +1492,7 @@
             const queryString = params.toString();
             if (queryString) url += '?' + queryString;
 
-            generatedUrl.textContent = `${window.location.origin}${url}`;
+            generatedUrl.textContent = publicUrl(url);
             codeOutput.style.display = 'block';
         }
 

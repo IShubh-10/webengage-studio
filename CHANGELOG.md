@@ -29,6 +29,24 @@ change itself, not afterwards.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Copyable links now point at the deployed service instead of `localhost`.**
+  The render URL (`public/index.html`), the generated-URL preview
+  (`public/index.html`) and the timer GIF embed (`public/assets/timers.js`) were
+  all built from `window.location.origin`, so anything copied from a developer
+  machine read `http://localhost:3000/...`. Pasted into a campaign it renders
+  nothing in the recipient's inbox — a failure that only shows up after the send.
+  They now build on `publicUrl()`.
+
+### Architecture
+
+- **One place knows the public origin:** `public/assets/origin.js`, which exports
+  `PUBLIC_ORIGIN` (`https://webengage-studio.onrender.com`) and `publicUrl(path)`
+  on `window`. It is loaded before every other script on all five pages. If the
+  service ever moves, change that one constant; do not reintroduce
+  `window.location.origin` for a URL a user is meant to paste elsewhere.
+
 ### Security
 
 - **`SESSION_SECRET` is now required in production.** It was optional, with a
