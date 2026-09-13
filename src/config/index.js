@@ -3,6 +3,7 @@
  * are named identically wherever they are used.
  */
 
+const fs = require('fs');
 const path = require('path');
 const { ROOT_DIR } = require('./env');
 
@@ -14,6 +15,46 @@ const PUBLIC_DIR = path.join(ROOT_DIR, 'public');
 // so a worker can size its own share of shared resources — os.cpus() is no help
 // here, it reports the host's cores rather than the container's CPU limit.
 const WORKER_COUNT = Math.max(1, Number(process.env.WORKER_COUNT || process.env.WORKERS || 1));
+
+// --- MySQL connection ---------------------------------------------------------
+// Every one of these comes from the environment (.env locally, the dashboard's
+// environment panel in a deployment), because a managed database hands you a
+// host, a port and a password that must not be written into the repository.
+const DB_HOST = process.env.DB_HOST || 'localhost';
+// Managed MySQL rarely listens on 3306 — it multiplexes many databases behind
+// one address, so each gets its own port.
+const DB_PORT = Math.max(1, Number(process.env.DB_PORT || 3306));
+const DB_USER = process.env.DB_USER || 'root';
+const DB_PASSWORD = process.env.DB_PASSWORD || '';
+const DB_NAME = process.env.DB_NAME || 'railway';
+
+// TLS. A hosted database is reached over the public internet, so the connection
+// has to be encrypted; a local one on 127.0.0.1 does not need it.
+//   DB_SSL=true          verify the server against the system CA store
+//   DB_SSL=skip-verify   encrypt but do not verify (self-signed certificates)
+//   DB_SSL_CA=/path.pem  verify against a CA the provider gave you
+// mysql2 wants `undefined` rather than `false` when TLS is off.
+const DB_SSL = (() => {
+  const mode = String(process.env.DB_SSL || '').trim().toLowerCase();
+  const ca = process.env.DB_SSL_CA;
+
+  if (ca) {
+    return { ca: fs.readFileSync(path.isAbsolute(ca) ? ca : path.join(ROOT_DIR, ca)) };
+  }
+  if (mode === 'skip-verify' || mode === 'no-verify') {
+    return { rejectUnauthorized: false };
+  }
+  if (mode === 'true' || mode === '1' || mode === 'required') {
+    return { minVersion: 'TLSv1.2' };
+  }
+  return undefined;
+})();
+
+// How long to wait for a connection to be established. mysql2's default is 10s,
+// which is generous for a database on localhost and tight for one behind a
+// provider's public TCP proxy — that handshake is seconds, not milliseconds,
+// and a cold worker opening its first connection is the slowest case.
+const DB_CONNECT_TIMEOUT_MS = Math.max(1000, Number(process.env.DB_CONNECT_TIMEOUT_MS || 20000));
 
 // --- MySQL pool ---------------------------------------------------------------
 // The pool is per worker, so the number that matters is the product. MySQL's
@@ -204,6 +245,13 @@ module.exports = {
   ROOT_DIR,
   PORT,
   WORKER_COUNT,
+  DB_HOST,
+  DB_PORT,
+  DB_USER,
+  DB_PASSWORD,
+  DB_NAME,
+  DB_SSL,
+  DB_CONNECT_TIMEOUT_MS,
   DB_POOL_TOTAL,
   DB_CONNECTION_LIMIT,
   DB_QUEUE_LIMIT,

@@ -1,0 +1,93 @@
+# Render Blueprint — one web service plus the Key Value (Redis) instance it caches in.
+#
+# Apply it from the dashboard: New ▸ Blueprint, point it at this repository.
+# Everything marked `sync: false` is left blank on purpose and has to be filled
+# in the dashboard (Environment ▸ Add), because it is either a secret or a value
+# that belongs to an account rather than to the code.
+#
+# MySQL is NOT here: Render hosts Postgres and Key Value, not MySQL. The database
+# lives with another provider and is reached over TLS — see docs/deploy-render.md.
+
+services:
+  - type: web
+    name: webengage-studio
+    runtime: node
+    plan: starter # free spins down after 15 idle minutes; see the doc for why that matters here
+    region: singapore
+    branch: main
+    # --include=optional keeps sharp's prebuilt linux-x64 binary from being
+    # skipped when the lockfile was written on a Mac.
+    buildCommand: npm ci --include=optional
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.12.0
+      - key: NODE_ENV
+        value: production
+
+      # The master forks os.cpus().length workers when this is unset, and
+      # os.cpus() reports the HOST's cores inside a container — on a 0.5 CPU
+      # instance that is eight workers fighting over half a core. Set it to
+      # match the plan: starter 1, standard 2, pro 4.
+      - key: WORKERS
+        value: "1"
+
+      # Render generates and stores this; nobody ever sees it in the repository.
+      # Regenerating it signs every user out.
+      - key: SESSION_SECRET
+        generateValue: true
+
+      # Internal redis:// URL, private to the Render network.
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: webengage-studio-cache
+          property: connectionString
+
+      # --- MySQL, hosted elsewhere: fill these in the dashboard --------------
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        sync: false
+      # The connection crosses the public internet, so it must encrypt. Railway
+      # serves MySQL's self-signed certificate, which no public CA signs, so
+      # `true` (verify) fails there and `skip-verify` (encrypt only) is right.
+      - key: DB_SSL
+        value: skip-verify
+
+      # Railway's MySQL allows 151 connections in total and a laptop is usually
+      # holding some of them. This is the budget for the whole Render cluster.
+      - key: DB_POOL_TOTAL
+        value: "30"
+
+      # --- Registration OTP -------------------------------------------------
+      - key: WEBENGAGE_API_KEY
+        sync: false
+
+      # --- S3 background archive -------------------------------------------
+      - key: AWS_REGION
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_BUCKET_NAME
+        sync: false
+
+  - type: keyvalue
+    name: webengage-studio-cache
+    plan: starter # `free` has no persistence at all — see docs/deploy-render.md
+    region: singapore # must match the web service for the internal URL to work
+    # Empty means no public access: only services inside this Render account's
+    # private network can reach it, which is all this app needs.
+    ipAllowList: []
+    # Everything in here is a cache with a TTL; when memory runs out, evict the
+    # least recently used key rather than start refusing writes.
+    maxmemoryPolicy: allkeys-lru

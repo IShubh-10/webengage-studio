@@ -12,22 +12,34 @@ const Redis = require('ioredis');
 
 const state = { client: null, connected: false };
 
+// Hosted Redis is handed over as a single URL (`redis://…`, or `rediss://…`
+// when it is reached over the public internet with TLS), so REDIS_URL wins when
+// it is set and the host/port/password trio stays for a local install.
+const REDIS_URL = process.env.REDIS_URL || '';
+
 function connectionOptions() {
-  return {
-    host: process.env.REDIS_HOST || '127.0.0.1',
-    port: process.env.REDIS_PORT || 6379,
-    password: process.env.REDIS_PASSWORD || undefined,
+  const common = {
     maxRetriesPerRequest: 3,
     enableReadyCheck: false,
     enableOfflineQueue: true,
     retryStrategy: (times) => Math.min(times * 50, 2000),
     reconnectOnError: () => true,
   };
+
+  if (REDIS_URL) return common;
+
+  return {
+    ...common,
+    host: process.env.REDIS_HOST || '127.0.0.1',
+    port: Number(process.env.REDIS_PORT || 6379),
+    password: process.env.REDIS_PASSWORD || undefined,
+  };
 }
 
 /** A fresh connection with the same settings — for pub/sub, which needs its own. */
 function createClient(overrides = {}) {
-  return new Redis({ ...connectionOptions(), ...overrides });
+  const options = { ...connectionOptions(), ...overrides };
+  return REDIS_URL ? new Redis(REDIS_URL, options) : new Redis(options);
 }
 
 async function initRedis() {

@@ -370,7 +370,91 @@ change itself, not afterwards.
   the same image and box over two differently sized backgrounds could share one
   resized buffer. It is keyed on the resolved pixel size instead.
 
+### Changed
+
+- **Every MySQL connection detail now comes from the environment**
+  (`src/config/index.js`, `src/config/db.js`). `db.js` had the host, user,
+  database — and the password `qwer1234` — written into it as fallbacks, so the
+  credential was in the repository and moving the app to another database meant
+  editing source. The new `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`,
+  `DB_NAME`, `DB_SSL` and `DB_SSL_CA` are read in `config/index.js` with the rest
+  of the tunables and destructured by the pool.
+
+  `DB_PORT` is the reason this came up: managed MySQL multiplexes many databases
+  behind one address and rarely listens on 3306. The app now points at Railway
+  (`tramway.proxy.rlwy.net:39120`, database `railway`) — with the port missing,
+  mysql2 quietly dials 3306 and the pool fails with `ETIMEDOUT` while a direct
+  connection on the right port works, which is a confusing way to lose an hour.
+
+  `DB_CONNECT_TIMEOUT_MS` is new alongside it, defaulting to 20s against
+  mysql2's 10s. A database behind a provider's public TCP proxy takes seconds to
+  complete a handshake (Railway: ~2.5s from a laptop) where a local one takes
+  milliseconds, and the slowest case is a cold worker's first connection.
+
+  `DB_SSL` takes `true` (verify against the system CA store), `skip-verify`
+  (encrypt without verifying, for self-signed certificates) or nothing at all
+  for a local server; `DB_SSL_CA` points at a provider's `.pem` instead. In
+  production the pool now logs which database it connected to and whether TLS is
+  on.
+
+- **Redis accepts a single `REDIS_URL`** (`src/config/redis.js`), since that is
+  how every hosted instance hands over its connection — `rediss://` for TLS from
+  outside the provider's network. The `REDIS_HOST`/`REDIS_PORT`/`REDIS_PASSWORD`
+  trio still applies when the URL is unset, so a local install is unaffected.
+
+### Breaking
+
+- **A deployment with a password-protected database must now set `DB_PASSWORD`.**
+  It used to fall back to the developer password baked into `src/config/db.js`;
+  there is no fallback any more and the pool will simply fail to authenticate.
+  Copy the MySQL block from `.env.example` into `.env` (or into the host's
+  environment panel) before restarting. Treat the old `qwer1234` as public — it
+  has been in the repository's history — and rotate it anywhere it is still
+  in use.
+
+### Added
+
+- **Render deployment**: a blueprint at [`render.yaml`](render.yaml) and the
+  walkthrough in [`docs/deploy-render.md`](docs/deploy-render.md). The blueprint
+  declares the web service and a Key Value (Redis) instance and wires `REDIS_URL`
+  between them; MySQL stays with an outside provider, because Render hosts
+  Postgres and Key Value and no MySQL.
+
+  [`docs/render-redis.md`](docs/render-redis.md) covers the Redis half on its
+  own, for a service whose repository is already connected: creating the Key
+  Value instance, which of the two URLs to use, the full environment list, and
+  what each cached thing costs when the instance empties.
+
+  Two things the doc exists to stop people rediscovering: `WORKERS` must be set
+  explicitly, because `os.cpus()` inside a container reports the host's cores and
+  the master would fork eight workers onto half a CPU; and a free Key Value
+  instance has no persistence, which the app survives — it falls back to memory —
+  at the cost of in-flight OTPs, evergreen timers' first-open timestamps and the
+  logout deny-list.
+
 ### Database
+
+- **Full schema dump for a one-shot import**:
+  [`migrations/personalize_studio_schema.sql`](migrations/personalize_studio_schema.sql).
+  The numbered migrations are incremental and assume you apply them in order,
+  which is awkward when someone just wants the database standing up in MySQL
+  Workbench. This file is structure-only (no rows) and carries `users`,
+  `templates` and `timers` together, plus `CREATE DATABASE IF NOT EXISTS
+  personalize_studio`, so it can be imported through **Server ▸ Data Import ▸
+  Import from Self-Contained File** or run directly:
+
+  ```
+  mysql -u root -p < migrations/personalize_studio_schema.sql
+  ```
+
+  Every statement is `IF NOT EXISTS` rather than the `DROP TABLE` a strict
+  mysqldump emits, so pointing it at an existing database is a no-op instead of
+  wiping it. It also skips mysqldump's `@OLD_SQL_MODE` save/restore preamble:
+  those user variables are session-scoped, so running only part of the file —
+  selecting a block of statements in the Workbench SQL editor — reached the
+  restore with the variable unset and failed with *Variable 'sql_mode' can't be
+  set to the value of 'NULL'* (error 1231). The file is generated from
+  `src/db/schema.js` by hand — keep the two in step when a table changes.
 
 - New **`timers`** table: `timer_id` (PK, `TMR-01` style), `name`, `config` JSON,
   `created_by`, timestamps. The whole definition lives in the one JSON column, in
