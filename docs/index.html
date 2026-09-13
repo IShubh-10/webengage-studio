@@ -874,7 +874,7 @@
                 templatesGrid.innerHTML = sortedTemplates.map(t => `
       <div class="template-card">
         <div class="template-card-preview">
-          <img src="/api/v1/render/${t.template_id}" alt="${t.template_id}" onerror="this.src='${t.background_url}'" />
+          <img src="${apiUrl(`/api/v1/render/${t.template_id}`)}" alt="${t.template_id}" onerror="this.src='${t.background_url}'" />
         </div>
         <div class="template-card-body">
           <div class="template-card-title">${t.template_id}</div>

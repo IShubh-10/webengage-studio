@@ -220,23 +220,39 @@ function parseCookies(req) {
   return cookies;
 }
 
+/*
+ * The front end is also published as a static site on GitHub Pages, which
+ * calls this API from a different origin. A `SameSite=Lax` cookie is not sent
+ * on a cross-site request at all, so a signed-in user on Pages would look
+ * signed out on every call. `None` is what allows it — and it is only legal
+ * alongside `Secure`, so it can only be used where the deployment is HTTPS.
+ * Over plain http on a developer machine the browser drops such a cookie
+ * entirely, hence the split: `None` in production, `Lax` locally.
+ *
+ * `SameSite=None` is the browser's CSRF protection switched off, so the server
+ * no longer gets it for free. `requireTrustedOrigin` in
+ * src/middleware/origin.js replaces it by checking the Origin header on every
+ * state-changing request. Do not remove one without the other.
+ */
+const CROSS_SITE_COOKIE = process.env.NODE_ENV === 'production';
+
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  sameSite: CROSS_SITE_COOKIE ? 'none' : 'lax',
+  secure: CROSS_SITE_COOKIE,
+  path: '/',
+};
+
 function setSessionCookie(res, user) {
-  res.cookie(SESSION_COOKIE, createSessionToken(user), {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: SESSION_TTL_SECONDS * 1000,
-    path: '/',
-  });
+  res.cookie(
+    SESSION_COOKIE,
+    createSessionToken(user),
+    Object.assign({ maxAge: SESSION_TTL_SECONDS * 1000 }, COOKIE_OPTIONS)
+  );
 }
 
 function clearSessionCookie(res) {
-  res.clearCookie(SESSION_COOKIE, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    path: '/',
-  });
+  res.clearCookie(SESSION_COOKIE, COOKIE_OPTIONS);
 }
 
 function publicUser(row) {

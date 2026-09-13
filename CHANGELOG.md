@@ -31,6 +31,20 @@ change itself, not afterwards.
 
 ### Fixed
 
+- **API calls from the GitHub Pages site reach the API.** Every request was
+  written as a bare `/api/v1/...`, which resolves against whichever host loaded
+  the page — so on Pages, sending a login OTP posted to
+  `https://ishubh-10.github.io/api/v1/auth/otp/send`, a host with no backend
+  behind it, and nothing on the site worked past the login form.
+  `docs/assets/origin.js` now also exports `apiUrl(path)`, which is same-origin
+  when the app itself is serving the page (or on localhost) and the deployed
+  origin otherwise. Everything routes through it:
+  `apiFetch` in `docs/assets/shell.js` (which covers all but four calls),
+  `postJson` and the auth-status probe in `docs/login.html`, logout and
+  logout-everywhere, and the template preview `<img>` in `docs/index.html`.
+  Requests that cross an origin now send `credentials: 'include'` — `same-origin`
+  would have dropped the session cookie.
+
 - **The front end is served again, and its stylesheets load on GitHub Pages.**
   Two separate faults, both from the `public/` → `docs/` rename:
 
@@ -79,6 +93,34 @@ change itself, not afterwards.
   `window.location.origin` for a URL a user is meant to paste elsewhere.
 
 ### Security
+
+- **The session cookie is `SameSite=None; Secure` in production, and CSRF is
+  now enforced by an Origin check.** The two changes go together and neither
+  should be undone alone.
+
+  A `SameSite=Lax` cookie is not sent on a cross-site request, so a user signed
+  in on the GitHub Pages site looked signed out on every call to the API. `None`
+  fixes that — and switches off the CSRF protection the browser was providing
+  for free. CORS does not fill the gap: it governs who may *read* a reply, not
+  who may send a request, and a form post or a bodyless `fetch` is a simple
+  request that is never preflighted. Two endpoints were reachable that way,
+  `POST /api/v1/auth/users/:id/delete` and `/api/v1/templates/:id/delete`.
+
+  New `requireTrustedOrigin` (`src/middleware/origin.js`, wired in
+  `src/app.js` ahead of body parsing) rejects any non-`GET`/`HEAD`/`OPTIONS`
+  request whose `Origin` header is set and not in `CORS_ORIGINS`. A request with
+  no `Origin` is passed through: browsers always send it on a state-changing
+  request, so its absence means a non-browser client, which has no cookie to
+  ride on.
+
+  `SameSite=None` requires `Secure`, which a browser will not accept over plain
+  http, so `src/services/sessions.js` keeps `Lax` when `NODE_ENV` is not
+  `production`. **This means the Node deployment must run with
+  `NODE_ENV=production` or signing in from the Pages site will silently fail.**
+  Note also that a cookie set by `onrender.com` on a request that
+  `github.io` started is a third-party cookie: Safari blocks those by default,
+  and Chrome's tracking protection blocks them in Incognito. Serving the front
+  end from the same origin as the API avoids the whole class of problem.
 
 - **Page filenames no longer bypass the session guards.** `express.static`
   served `docs/admin.html`, `tools.html` and `timers.html` verbatim to anyone

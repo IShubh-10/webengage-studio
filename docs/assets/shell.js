@@ -91,8 +91,15 @@
 
     /* ------------------------------------------------------ session handling */
 
+    /* Every API call in the app goes through here. `apiUrl` points it at the
+       right host (the page's own, or the deployed app when these files are
+       being served as a static site), and `credentials: 'include'` is what
+       carries the session cookie when those differ. */
     window.apiFetch = async function apiFetch(url, options) {
-        const response = await fetch(url, Object.assign({ credentials: 'same-origin' }, options || {}));
+        const response = await fetch(
+            window.apiUrl(url),
+            Object.assign({ credentials: 'include' }, options || {})
+        );
 
         if (response.status === 401) {
             window.location.replace(`login.html?next=${encodeURIComponent(window.location.pathname)}`);
@@ -108,7 +115,7 @@
 
     async function logout() {
         try {
-            await fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'same-origin' });
+            await fetch(window.apiUrl('/api/v1/auth/logout'), { method: 'POST', credentials: 'include' });
         } finally {
             window.location.replace('login.html');
         }
@@ -124,7 +131,7 @@
         if (!confirmed) return;
 
         try {
-            await fetch('/api/v1/auth/logout-all', { method: 'POST', credentials: 'same-origin' });
+            await fetch(window.apiUrl('/api/v1/auth/logout-all'), { method: 'POST', credentials: 'include' });
         } finally {
             window.location.replace('login.html');
         }

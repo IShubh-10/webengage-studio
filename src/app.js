@@ -7,6 +7,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 
 const { attachUserFromSession } = require('./middleware/session');
+const { requireTrustedOrigin } = require('./middleware/origin');
 const { CORS_ORIGINS, PUBLIC_DIR } = require('./config');
 
 const app = express();
@@ -19,6 +20,10 @@ app.use(
     credentials: true,
   })
 );
+
+// Runs before the body is even parsed: a request from an origin we do not
+// trust is refused outright rather than being read and acted on.
+app.use(requireTrustedOrigin);
 
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
