@@ -71,6 +71,9 @@ const DEFAULT_STYLE = {
     radius: 10,
     padX: 18,
     padY: 14,
+    // Whether the plate reaches down over the labels or stops at the digits.
+    // True keeps the shape every timer had before this was configurable.
+    coverLabels: true,
   },
 };
 
@@ -137,6 +140,7 @@ function normalizeStyle(raw = {}) {
       radius: Math.round(clamp(plate.radius, 0, 200, DEFAULT_STYLE.plate.radius)),
       padX: Math.round(clamp(plate.padX, 0, 400, DEFAULT_STYLE.plate.padX)),
       padY: Math.round(clamp(plate.padY, 0, 400, DEFAULT_STYLE.plate.padY)),
+      coverLabels: bool(plate.coverLabels, DEFAULT_STYLE.plate.coverLabels),
     },
   };
 }
@@ -232,6 +236,7 @@ function applyQueryOverrides(timer, query = {}, { allowSource = false } = {}) {
       ? String(query.plate)
       : (bool(query.plate, false) ? 'block' : 'none');
   }
+  if (has('platelabels')) merged.style.plate.coverLabels = query.platelabels;
   if (has('platecolor')) merged.style.plate.color = query.platecolor;
   if (has('plateradius')) merged.style.plate.radius = query.plateradius;
   if (has('plateopacity')) merged.style.plate.opacity = query.plateopacity;

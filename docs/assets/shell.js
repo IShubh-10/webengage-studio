@@ -89,6 +89,36 @@
             .join('');
     }
 
+    /* ---------------------------------------------------------------- toast */
+
+    /**
+     * The app's transient message, bottom right. Styling is `.toast` in
+     * theme.css; `kind` is 'ok', 'error', or nothing for neutral.
+     *
+     * The node is created on demand, so a page opts in by calling this and
+     * nothing else — there is no markup to remember to add. A page that
+     * already has a `#toast` div keeps using it.
+     */
+    let toastNode = null;
+    let toastTimer = null;
+
+    window.toast = function toast(message, kind) {
+        if (!toastNode) {
+            toastNode = document.getElementById('toast');
+        }
+        if (!toastNode) {
+            toastNode = document.createElement('div');
+            toastNode.id = 'toast';
+            document.body.appendChild(toastNode);
+        }
+
+        toastNode.textContent = message;
+        toastNode.className = `toast show${kind ? ' ' + kind : ''}`;
+
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toastNode.classList.remove('show'), 3600);
+    };
+
     /* ------------------------------------------------------ session handling */
 
     /* Every API call in the app goes through here. `apiUrl` points it at the

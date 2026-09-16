@@ -156,6 +156,31 @@
             background: var(--success-hover);
         }
 
+        /* Viewing someone else's template ---------------------------------
+           Every control is genuinely disabled by setReadOnly(); this only says
+           so visibly, so the workspace does not look broken. */
+        .read-only-banner {
+            margin-bottom: 14px;
+            padding: 10px 12px;
+            border: 1px solid var(--border-color);
+            border-left: 3px solid var(--primary);
+            border-radius: var(--radius-sm);
+            background: var(--panel-alt);
+            font-size: 12px;
+            line-height: 1.55;
+            color: var(--text-muted);
+        }
+
+        .read-only .text-element,
+        .read-only .image-element {
+            cursor: default;
+        }
+
+        .read-only .text-element:hover,
+        .read-only .image-element:hover {
+            border-color: transparent;
+        }
+
         /* Canvas ---------------------------------------------------------- */
         .canvas-panel {
             display: flex;
@@ -552,6 +577,7 @@
                     <div class="panel-header">Template Configuration</div>
                     <div class="panel-body">
                         <div id="alert" class="alert info" style="display: none"></div>
+                        <div id="readOnlyBanner" class="read-only-banner" style="display: none"></div>
 
                         <div class="form-group">
                             <label for="templateId">Template ID</label>
@@ -762,6 +788,10 @@
             backgroundUrl: '',
             textElements: [],
             selectedElementIndex: -1,
+            // Set when the open template belongs to someone else: the whole
+            // workspace goes read-only. See setReadOnly().
+            readOnly: false,
+            owner: '',
         };
 
         // DOM Caching
@@ -868,9 +898,6 @@
                     return a.template_id.localeCompare(b.template_id, undefined, { numeric: true, sensitivity: 'base' });
                 });
 
-                // Deleting a template is admin-only, so the button only exists for them
-                const isAdmin = window.shellUser && window.shellUser.role === 'admin';
-
                 templatesGrid.innerHTML = sortedTemplates.map(t => `
       <div class="template-card">
         <div class="template-card-preview">
@@ -879,10 +906,11 @@
         <div class="template-card-body">
           <div class="template-card-title">${t.template_id}</div>
           <div class="template-card-meta">Layers: ${t.textElements ? t.textElements.length : 0}</div>
+          <div class="template-card-meta">by ${t.created_by_name || 'someone who has since left'}${t.canEdit ? '' : ' &middot; view only'}</div>
           <div class="template-card-actions">
-            <button onclick="loadTemplateIntoStudio('${t.template_id}')">Edit in Studio</button>
+            <button onclick="loadTemplateIntoStudio('${t.template_id}')">${t.canEdit ? 'Edit in Studio' : 'Open to view'}</button>
             <button class="secondary" onclick="copyRenderUrlFor('${t.template_id}', this)">Copy URL</button>
-            ${isAdmin ? `<button class="danger" onclick="deleteTemplate('${t.template_id}')">Delete</button>` : ''}
+            ${t.canEdit ? `<button class="danger" onclick="deleteTemplate('${t.template_id}')">Delete</button>` : ''}
           </div>
         </div>
       </div>
@@ -904,14 +932,20 @@
                     bgUrlInput.value = found.background_url;
                     state.textElements = found.textElements || [];
                     updateCanvasBackground();
+                    // Before the list render, so the layer buttons come out
+                    // disabled the first time rather than on a second pass.
+                    setReadOnly(!found.canEdit, found.created_by_name);
                     renderTextElementsList();
                     switchTab('studio');
-                    showAlert(`Loaded ${templateId}`, 'success');
+                    showAlert(
+                        found.canEdit ? `Loaded ${templateId}` : `Viewing ${templateId}`,
+                        found.canEdit ? 'success' : 'info'
+                    );
                 }
             } catch (e) { showAlert('Error loading template', 'error'); }
         };
 
-        // Admin only: the endpoint enforces it too, this just hides the button
+        // Owner or admin: the endpoint enforces it too, this just hides the button
         window.deleteTemplate = async function (templateId) {
             const confirmed = window.confirm(
                 `Delete ${templateId}? Any render URL still pointing at it will start returning 404. This cannot be undone.`
@@ -1211,6 +1245,8 @@
                 }
 
                 elDiv.addEventListener('mousedown', (e) => {
+                    // Selecting is fine, moving and resizing are not.
+                    if (state.readOnly) return;
                     if (e.target.classList.contains('resize-handle')) {
                         initResize(e, index, elDiv, e.target.getAttribute('data-handle'));
                     } else {
@@ -1396,6 +1432,46 @@
             });
         }
 
+        /* ------------------------------------------------- read-only mode
+
+           A template belongs to whoever made it. Anyone can open anyone's to
+           look at it, but only the owner and admins can change one — the same
+           rule the save and delete endpoints enforce, mirrored here so the UI
+           does not invite an action the server will refuse.
+
+           Everything in the workspace is switched off except the three things
+           that still make sense on someone else's template: starting your own,
+           generating its render URL, and copying that URL.
+        */
+        const ALWAYS_ENABLED = ['newTemplateBtn', 'generateCodeBtn', 'copyCodeBtn'];
+
+        function applyReadOnly() {
+            const page = document.getElementById('pageStudio');
+            page.classList.toggle('read-only', state.readOnly);
+
+            page.querySelectorAll('input, select, textarea, button').forEach((node) => {
+                if (ALWAYS_ENABLED.includes(node.id)) return;
+                // Generated by the app, never typed into.
+                if (node.id === 'templateId') return;
+                node.disabled = state.readOnly;
+            });
+
+            const banner = document.getElementById('readOnlyBanner');
+            banner.style.display = state.readOnly ? 'block' : 'none';
+            banner.textContent = state.readOnly
+                ? `${state.templateId} belongs to ${state.owner || 'another member'} — you can look at it and copy its URL, but only they or an admin can change it.`
+                : '';
+        }
+
+        function setReadOnly(on, ownerName) {
+            state.readOnly = Boolean(on);
+            state.owner = ownerName || '';
+            applyReadOnly();
+            // The layer list is rebuilt from scratch on every change, so its
+            // buttons have to be re-disabled each time.
+            renderTextElementsList();
+        }
+
         function renderTextElementsList() {
             textElementsList.innerHTML = '';
 
@@ -1432,6 +1508,12 @@
 
                 textElementsList.appendChild(card);
             }
+
+            if (state.readOnly) {
+                textElementsList
+                    .querySelectorAll('button')
+                    .forEach((button) => { button.disabled = true; });
+            }
         }
 
         window.deleteTextElement = function (e, index) {
@@ -1441,9 +1523,15 @@
             renderTextElementsList();
         };
 
+        // Saving reports through the toast rather than the inline alert, the
+        // same as the timer builder: the confirmation belongs next to the
+        // button you just pressed, not at the top of a panel you may have
+        // scrolled away from.
         async function saveTemplate() {
             const templateId = state.templateId || templateIdInput.value.trim();
-            if (!templateId || !state.backgroundUrl) return showAlert('Missing background URL', 'error');
+            if (!templateId || !state.backgroundUrl) {
+                return toast('Add a background image URL before saving', 'error');
+            }
 
             try {
                 const response = await apiFetch('/api/v1/templates', {
@@ -1451,11 +1539,23 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ templateId, backgroundUrl: state.backgroundUrl, textElements: state.textElements })
                 });
-                if (response.ok) { showAlert(`Saved Template ${templateId}!`, 'success'); }
-            } catch (err) { showAlert('Error saving template', 'error'); }
+
+                // A rejected save used to say nothing at all — only `ok` was
+                // handled — so a 4xx left the page looking like it had worked.
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    return toast(data.error || `Could not save ${templateId}`, 'error');
+                }
+
+                toast(`Saved template ${templateId}`, 'ok');
+            } catch (err) {
+                toast('Could not reach the server — the template was not saved', 'error');
+            }
         }
 
         function resetStudioForNewTemplate() {
+            // Whatever you were looking at, your own new template is yours.
+            setReadOnly(false);
             fetchNextTemplateId();
             bgUrlInput.value = '';
             state.backgroundUrl = '';

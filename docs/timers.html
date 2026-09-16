@@ -13,11 +13,23 @@
     <script>
         // Both sections are views inside this page, so the profile menu hands
         // them back here instead of navigating away.
+        const initialView =
+            new URLSearchParams(window.location.search).get('view') === 'library'
+                ? 'library'
+                : 'builder';
+
+        /*
+         * Set before the body is parsed, because which view is showing has to
+         * be decided before the first paint. Marking the builder active in the
+         * markup and correcting it from DOMContentLoaded meant arriving at
+         * ?view=library showed the builder first and then jumped — the whole
+         * page painted before the script that knew better had run.
+         */
+        document.documentElement.dataset.view = initialView;
+
         window.STUDIO_SHELL = {
             active: 'timers',
-            section: new URLSearchParams(window.location.search).get('view') === 'library'
-                ? 'library'
-                : 'builder',
+            section: initialView,
             onSection: (key) => switchView(key),
         };
     </script>
@@ -28,13 +40,17 @@
             overflow: hidden;
         }
 
+        /* Driven by data-view on <html>, which the script in the head sets
+           before anything paints. One mechanism, so the initial render and
+           switchView() can never disagree. */
         .page-view {
             display: none;
             height: 100%;
             width: 100%;
         }
 
-        .page-view.active {
+        html[data-view='builder'] #view-builder,
+        html[data-view='library'] #view-library {
             display: flex;
             overflow-y: auto;
         }
@@ -188,6 +204,53 @@
             gap: 4px 12px;
         }
 
+        /* Viewing someone else's timer ------------------------------------
+           Every control is genuinely disabled by setReadOnly(); this only says
+           so visibly, so the builder does not look broken. */
+        .read-only-banner {
+            margin-bottom: 12px;
+            padding: 10px 12px;
+            border: 1px solid var(--border-color);
+            border-left: 3px solid var(--primary);
+            border-radius: var(--radius-sm);
+            background: var(--panel-alt);
+            font-size: 11.5px;
+            line-height: 1.55;
+            color: var(--text-muted);
+        }
+
+        /* The block handle is for repositioning, which is an edit. */
+        .read-only .block-handle {
+            display: none !important;
+        }
+
+        /* Read-only is for *reading*, so a locked field keeps full contrast.
+           The default disabled treatment washes the value out, which is the
+           right signal for an action you cannot take and the wrong one for a
+           setting you came to look at. Browsers fade disabled controls at the
+           engine level, hence -webkit-text-fill-color and opacity. */
+        .read-only input:read-only,
+        .read-only textarea:read-only,
+        .read-only input:disabled,
+        .read-only select:disabled {
+            background: var(--sunken);
+            color: var(--text-main);
+            -webkit-text-fill-color: var(--text-main);
+            opacity: 1;
+            cursor: default;
+        }
+
+        .read-only .check input:disabled {
+            accent-color: var(--primary);
+            opacity: 1;
+        }
+
+        /* Opening a section is not an edit — Labels, After it ends and
+           Advanced all start collapsed, so these have to keep working. */
+        .read-only .group-title {
+            cursor: pointer;
+        }
+
         /* Canvas --------------------------------------------------------- */
         .canvas-panel {
             display: flex;
@@ -231,23 +294,46 @@
             height: auto;
         }
 
-        /* The draggable handle sits exactly over the block the server measured */
+        /* The draggable handle sits exactly over the block the server measured.
+           While dragging, timers.js fills it with the crop of the preview it
+           covers, so the clock itself is what moves — hence background-color
+           rather than the background shorthand, which would wipe that out. */
         .block-handle {
             position: absolute;
             border: 1.5px dashed rgba(255, 255, 255, 0.9);
             outline: 1.5px dashed rgba(15, 23, 42, 0.55);
             border-radius: 3px;
             cursor: grab;
-            transition: background 0.15s ease;
+            background-repeat: no-repeat;
+            transition: background-color 0.15s ease;
         }
 
-        .block-handle:hover {
-            background: rgba(1, 84, 165, 0.18);
+        /* :not(.dragging) rather than relying on source order — the hover tint
+           would otherwise paint over the crop the handle is carrying. */
+        .block-handle:hover:not(.dragging) {
+            background-color: rgba(1, 84, 165, 0.18);
         }
 
+        /* Held from pointerdown until the new preview lands, so the clock does
+           not flick back to its old position during the round trip. */
         .block-handle.dragging {
+            /* Transparent so the crop shows through, and lifted off the page
+               so it reads as the piece being moved. */
+            background-color: transparent;
+            box-shadow: 0 8px 20px -8px rgba(15, 23, 42, 0.55);
+            will-change: transform;
+        }
+
+        /* Only while the pointer is actually down. */
+        .block-handle.grabbing {
             cursor: grabbing;
-            background: rgba(1, 84, 165, 0.24);
+        }
+
+        /* The clock is still drawn at its old position in the preview. Fading
+           it stops that stale copy from competing with the one under the
+           cursor. */
+        .stage img.dragging {
+            opacity: 0.35;
         }
 
         .stage.busy::after {
@@ -398,6 +484,13 @@
             color: var(--text-muted);
         }
 
+        /* Who made it, and — when it is not yours — that you are only looking. */
+        .timer-owner {
+            margin-top: 2px;
+            font-size: 11.5px;
+            color: var(--text-faint);
+        }
+
         .empty-state {
             padding: 48px 20px;
             text-align: center;
@@ -405,37 +498,6 @@
             color: var(--text-muted);
         }
 
-        /* Toast ---------------------------------------------------------- */
-        .toast {
-            position: fixed;
-            right: 20px;
-            bottom: 20px;
-            z-index: 60;
-            display: none;
-            max-width: 340px;
-            padding: 11px 15px;
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-sm);
-            background: var(--panel-bg);
-            box-shadow: var(--shadow-menu);
-            font-size: 13px;
-        }
-
-        .toast.show {
-            display: block;
-        }
-
-        .toast.error {
-            border-color: var(--danger-border);
-            background: var(--danger-wash);
-            color: var(--danger);
-        }
-
-        .toast.ok {
-            border-color: var(--ok-border);
-            background: var(--ok-wash);
-            color: var(--ok);
-        }
     </style>
 </head>
 
@@ -454,8 +516,9 @@
             <div class="view-container">
 
                 <!-- ================================================ BUILDER -->
-                <div class="page-view active" id="view-builder">
+                <div class="page-view" id="view-builder">
                     <div class="builder-layout">
+
 
                         <!-- ------------------------------------- settings -->
                         <div class="panel">
@@ -660,6 +723,12 @@
                                                     <input type="number" id="platePadY" min="0" max="400" value="14" />
                                                 </div>
                                             </div>
+                                            <label class="check"><input type="checkbox" id="plateCoverLabels"
+                                                    checked />Plate covers the unit labels</label>
+                                            <p class="hint">
+                                                Uncheck to back only the digits, leaving DAYS / HOURS / MINS / SECS
+                                                on the creative itself. Nothing changes while labels are off.
+                                            </p>
                                             <p class="hint" id="plateHint"></p>
                                         </div>
                                     </div>
@@ -807,6 +876,7 @@
                             <div class="panel-header"><span>Save &amp; Embed</span></div>
                             <div class="panel-body">
                                 <div class="field">
+                                    <div id="readOnlyBanner" class="read-only-banner" style="display: none"></div>
                                     <label for="timerId">Timer ID</label>
                                     <input type="text" id="timerId" disabled/>
                                 </div>
@@ -827,7 +897,14 @@
                                         <button class="btn small" id="copyEmbedBtn" type="button">Copy snippet</button>
                                         <button class="btn small" id="copyUrlBtn" type="button">Copy URL</button>
                                     </div>
-                                    <p class="hint">Save the timer first — the URL only works once it exists.</p>
+                                    <p class="hint">
+                                        Save the timer first — the URL only works once it exists.
+                                        Keep the <code>uid</code> parameter and make sure your ESP
+                                        replaces it with something different for each recipient.
+                                        Gmail fetches an image once per URL and shares that copy
+                                        with everyone the campaign went to, so a single URL freezes
+                                        the clock for the whole send.
+                                    </p>
                                 </div>
 
                                 <div class="field" style="margin-top: 18px;">

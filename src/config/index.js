@@ -88,6 +88,71 @@ const DB_QUEUE_LIMIT = Math.max(0, Number(process.env.DB_QUEUE_LIMIT || 100));
 const RENDER_CONCURRENCY = Math.max(1, Number(process.env.RENDER_CONCURRENCY || 16));
 const RENDER_QUEUE_LIMIT = Math.max(0, Number(process.env.RENDER_QUEUE_LIMIT || 1024));
 
+// --- Per-IP rate limits ------------------------------------------------------
+// Two very different ceilings, because the endpoints have very different
+// callers.
+//
+// The public GIF is fetched by email clients, not by people. Gmail pulls every
+// recipient's copy through a small pool of Google addresses, so one IP
+// legitimately accounts for a whole campaign — and a corporate network puts an
+// entire office behind one address too. The limit here is set where no real
+// send will ever reach it and a scripted flood still will; the concurrency
+// limiter in lib/limiter.js remains the real defence against overload.
+//
+// The auth endpoints are the opposite: one human, a handful of requests. A
+// tight limit there is what stops someone looping OTP sends and spending real
+// money on messages.
+const RATE_LIMIT_WINDOW_SECONDS = Math.max(1, Number(process.env.RATE_LIMIT_WINDOW_SECONDS || 60));
+const RATE_LIMIT_GIF = Math.max(1, Number(process.env.RATE_LIMIT_GIF || 600));
+const RATE_LIMIT_AUTH = Math.max(1, Number(process.env.RATE_LIMIT_AUTH || 10));
+
+// --- Outbound image fetching -------------------------------------------------
+// A template may use a placeholder as an image source, so `?image=…` on the
+// public render endpoint is a URL the caller chooses and this server fetches.
+// These bound what that can cost and where it can reach; the address checks
+// live in lib/urlGuard.js.
+//
+// IMAGE_HOST_ALLOWLIST is empty by default, which means "any public host".
+// Setting it — IMAGE_HOST_ALLOWLIST=res.cloudinary.com,afiles.webengage.com —
+// is strictly stronger, and is the only thing that closes DNS rebinding.
+const IMAGE_HOST_ALLOWLIST = String(process.env.IMAGE_HOST_ALLOWLIST || '')
+  .split(',')
+  .map((host) => host.trim().toLowerCase())
+  .filter(Boolean);
+
+const IMAGE_MAX_URL_LENGTH = Math.max(16, Number(process.env.IMAGE_MAX_URL_LENGTH || 2048));
+
+// The response is read into memory to be handed to sharp, so an unbounded one
+// is an unbounded allocation. Rejected on Content-Length where the remote
+// sends it, and enforced again while reading for the ones that do not.
+const IMAGE_MAX_BYTES = Math.max(1024, Number(process.env.IMAGE_MAX_BYTES || 12 * 1024 * 1024));
+
+// There was no timeout at all: the `timeout` option in images.js is node-fetch
+// syntax, and this runs on Node's built-in fetch, which ignores it.
+const IMAGE_FETCH_TIMEOUT_MS = Math.max(1000, Number(process.env.IMAGE_FETCH_TIMEOUT_MS || 10000));
+
+// How long a URL's allow/refuse verdict is remembered. The check runs ahead of
+// the image caches, so without this every render would pay a DNS lookup. Short
+// enough that a re-pointed hostname is not trusted for long.
+const IMAGE_GUARD_TTL_MS = Math.max(1000, Number(process.env.IMAGE_GUARD_TTL_MS || 300000));
+
+// Per-IP ceiling for the public render endpoint. Like the timer GIF it is
+// fetched by email clients rather than by people, so it is generous — but
+// unlike the GIF it had nothing at all.
+const RATE_LIMIT_RENDER = Math.max(1, Number(process.env.RATE_LIMIT_RENDER || 600));
+
+// The switch for a load test.
+//
+// A load generator runs from one address, so it hits a per-IP limit within
+// seconds and the run then measures the limiter rather than the service. Set
+// RATE_LIMIT_ENABLED=false and every limit is bypassed; the concurrency
+// limiter (RENDER_CONCURRENCY / RENDER_QUEUE_LIMIT) is untouched, which is
+// usually what you actually want to measure.
+//
+// Off by accident in production is an open door, so server.js says so loudly
+// on every boot rather than letting it pass silently.
+const RATE_LIMIT_ENABLED = String(process.env.RATE_LIMIT_ENABLED || 'true').toLowerCase() !== 'false';
+
 // Frames are assembled and LZW-encoded synchronously. Handing control back to
 // the event loop every so often keeps one large render from stalling every
 // other request behind it — it costs the render a little latency and buys a far
@@ -259,6 +324,16 @@ module.exports = {
   DB_QUEUE_LIMIT,
   RENDER_CONCURRENCY,
   RENDER_QUEUE_LIMIT,
+  RATE_LIMIT_WINDOW_SECONDS,
+  RATE_LIMIT_GIF,
+  RATE_LIMIT_AUTH,
+  RATE_LIMIT_RENDER,
+  RATE_LIMIT_ENABLED,
+  IMAGE_HOST_ALLOWLIST,
+  IMAGE_MAX_URL_LENGTH,
+  IMAGE_MAX_BYTES,
+  IMAGE_FETCH_TIMEOUT_MS,
+  IMAGE_GUARD_TTL_MS,
   RENDER_YIELD_FRAMES,
   PUBLIC_DIR,
   SESSION_COOKIE,

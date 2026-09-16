@@ -16,7 +16,7 @@ const { scanDelete } = require('../lib/redisOps');
 const { renderLimiter } = require('../lib/limiter');
 const { recordMetric } = require('../lib/metrics');
 const { ensureTimerSchema } = require('../db/schema');
-const { requireAuth, requireAdmin } = require('../middleware/guards');
+const { requireAuth, canManage, isAdminUser } = require('../middleware/guards');
 const { collectVars } = require('../services/render');
 const { renderTimer, BLANK_GIF } = require('../services/countdown');
 const { renderStill } = require('../services/countdown/still');
@@ -26,10 +26,16 @@ const {
   nextTimerId,
   listTimers,
   findTimer,
+  timerOwner,
   saveTimer,
   deleteTimer,
 } = require('../repositories/timerRepository');
-const { NO_STORE_HEADERS } = require('../config');
+const { rateLimit } = require('../middleware/rateLimit');
+const {
+  NO_STORE_HEADERS,
+  RATE_LIMIT_GIF,
+  RATE_LIMIT_WINDOW_SECONDS,
+} = require('../config');
 
 // Query keys the timer itself consumes. Everything else is passed through as a
 // template variable, so a creative can still be personalised per recipient.
@@ -37,7 +43,7 @@ const RESERVED_QUERY_KEYS = new Set([
   'end', 'tz', 'dur', 'uid', 'template', 'bg', 'w', 'bgcolor', 'colors', 'frames', 'loop',
   'x', 'y', 'units', 'font', 'size', 'weight', 'color', 'sep', 'sepcolor', 'gap',
   'labels', 'labelcolor', 'labelsize',
-  'plate', 'platecolor', 'plateradius', 'plateopacity', 'platepadx', 'platepady',
+  'plate', 'platelabels', 'platecolor', 'plateradius', 'plateopacity', 'platepadx', 'platepady',
   'expired', 'expiredmode', 'expiredcolor', 'expiredimage', 'vars',
 ]);
 
@@ -54,6 +60,28 @@ function noStore(res) {
   res.setHeader('Vary', '*');
 }
 
+/*
+ * A refusal still has to be an image. This endpoint's caller is an <img> tag in
+ * somebody's inbox: a JSON error body renders as a broken-image icon in a live
+ * campaign, which is both worse-looking than nothing and impossible for the
+ * recipient to do anything about.
+ *
+ * The ceiling is deliberately high. Gmail fetches every recipient's copy
+ * through a small pool of Google addresses, so a single IP legitimately
+ * accounts for an entire send — see the note in src/config/index.js.
+ */
+const gifRateLimit = rateLimit({
+  name: 'timer-gif',
+  limit: RATE_LIMIT_GIF,
+  windowSeconds: RATE_LIMIT_WINDOW_SECONDS,
+  onLimited: (req, res, retryAfter) => {
+    noStore(res);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.setHeader('Content-Type', 'image/gif');
+    res.status(429).send(BLANK_GIF);
+  },
+});
+
 /* ------------------------------------------------------------ the GIF */
 
 /**
@@ -64,7 +92,7 @@ function noStore(res) {
  * `.gif` is part of the path rather than a query parameter because some email
  * clients and link scanners decide whether to fetch something by its extension.
  */
-router.get('/api/v1/timer/:timerId.gif', async (req, res) => {
+router.get('/api/v1/timer/:timerId.gif', gifRateLimit, async (req, res) => {
   const startTime = Date.now();
 
   try {
@@ -196,7 +224,19 @@ router.get('/api/v1/timers/next-id', requireAuth, async (req, res) => {
 router.get('/api/v1/timers', requireAuth, async (req, res) => {
   try {
     await ensureTimerSchema();
-    res.json({ success: true, timers: await listTimers() });
+
+    /*
+     * `canEdit` is decided here rather than in the browser so the rule lives in
+     * exactly one place — the same answer the write endpoints will give. The
+     * role is looked up once for the whole list instead of once per row.
+     */
+    const admin = await isAdminUser(req.user);
+    const timers = (await listTimers()).map((timer) => ({
+      ...timer,
+      canEdit: admin || Number(timer.created_by) === Number(req.user.uid),
+    }));
+
+    res.json({ success: true, timers, viewerIsAdmin: admin });
   } catch (err) {
     console.error('Error fetching timers:', err);
     res.status(500).json({ error: 'Failed to fetch timers' });
@@ -232,6 +272,19 @@ router.post('/api/v1/timers', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Pick a creative: a studio template or an image URL' });
     }
 
+    /*
+     * Anyone signed in may create a timer. Overwriting one is a different act:
+     * the save is an upsert keyed on the id, so without this check any member
+     * could retype somebody else's timer id and silently replace a creative
+     * that live campaigns are already pointing at.
+     */
+    const owner = await timerOwner(String(timerId).slice(0, 100));
+    if (owner && !(await canManage(req.user, owner.createdBy))) {
+      return res.status(403).json({
+        error: 'Only the person who created this timer, or an admin, can change it',
+      });
+    }
+
     await saveTimer({
       timerId: String(timerId).slice(0, 100),
       name: String(name).slice(0, 190),
@@ -250,19 +303,35 @@ router.post('/api/v1/timers', requireAuth, async (req, res) => {
   }
 });
 
-// Deleting is destructive and permanent — any live campaign pointing at this
-// timer starts serving a blank pixel — so it matches the templates rule and is
-// admin-only.
-router.post('/api/v1/timers/:timerId/delete', requireAdmin, async (req, res) => {
+/*
+ * Deleting is destructive and permanent — any live campaign pointing at this
+ * timer starts serving a blank pixel — so it is the creator's call or an
+ * admin's, and nobody else's. It used to be admin-only, which meant the person
+ * who made a timer could not clean up after themselves.
+ *
+ * The ownership lookup happens before the delete so a caller who may not touch
+ * the row is told so, instead of the delete quietly reporting 404.
+ */
+router.post('/api/v1/timers/:timerId/delete', requireAuth, async (req, res) => {
   try {
     await ensureTimerSchema();
 
     const { timerId } = req.params;
+
+    const owner = await timerOwner(timerId);
+    if (!owner) return res.status(404).json({ error: 'Timer not found' });
+
+    if (!(await canManage(req.user, owner.createdBy))) {
+      return res.status(403).json({
+        error: 'Only the person who created this timer, or an admin, can delete it',
+      });
+    }
+
     if (!(await deleteTimer(timerId))) return res.status(404).json({ error: 'Timer not found' });
 
     await invalidateTimerCaches(timerId);
 
-    console.log(`🗑️ Timer ${timerId} deleted by ${req.adminUser.email}`);
+    console.log(`🗑️ Timer ${timerId} deleted by ${req.user.email}`);
     res.json({ success: true, timerId, message: 'Timer deleted' });
   } catch (err) {
     console.error('Error deleting timer:', err);

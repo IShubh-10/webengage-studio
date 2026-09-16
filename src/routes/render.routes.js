@@ -13,19 +13,64 @@ const express = require('express');
 const router = express.Router();
 
 const redisState = require('../config/redis').state;
-const { collectVars, renderTemplate } = require('../services/render');
+const {
+  collectVars,
+  renderTemplate,
+  loadTemplateSchema,
+  templatePlaceholders,
+  relevantVars,
+} = require('../services/render');
 const { metrics, recordMetric } = require('../lib/metrics');
 const { renderLimiter } = require('../lib/limiter');
+const { rateLimit } = require('../middleware/rateLimit');
+const { RATE_LIMIT_RENDER, RATE_LIMIT_WINDOW_SECONDS } = require('../config');
 
-router.get('/api/v1/render/:templateId', async (req, res) => {
+/*
+ * This endpoint is public and every miss is ~half a second to several seconds
+ * of CPU, so it needs the same ceiling the timer GIF has. Generous for the
+ * same reason: an email client fetches it on behalf of a whole campaign, and a
+ * limit tight enough to inconvenience an attacker would break a real send
+ * first. Refusals are JSON here rather than a blank image — unlike the timer
+ * GIF this is also called by tooling that benefits from a readable error.
+ */
+const renderRateLimit = rateLimit({
+  name: 'render',
+  limit: RATE_LIMIT_RENDER,
+  windowSeconds: RATE_LIMIT_WINDOW_SECONDS,
+});
+
+router.get('/api/v1/render/:templateId', renderRateLimit, async (req, res) => {
   const startTime = Date.now();
 
   try {
     const { templateId } = req.params;
     const vars = collectVars(req.query);
 
-    // Create render cache key with hash of variables
-    const varHash = crypto.createHash('md5').update(JSON.stringify(vars)).digest('hex');
+    /*
+     * Key on the variables the template actually uses, not on everything that
+     * arrived.
+     *
+     * Hashing the whole query string meant `?junk=1`, `?junk=2`, `?junk=3` were
+     * three different cache entries producing three identical images — so a
+     * caller could force an unbounded number of fresh composites, each one
+     * seconds of CPU and 600s of Redis, simply by counting. Reducing to the
+     * placeholders the creative contains is exact rather than a heuristic: a
+     * variable the template never mentions cannot change a pixel of the output.
+     *
+     * The timer endpoint has done this since it was written (`cacheVars` in
+     * services/countdown); this is the same reduction, finally applied here.
+     */
+    let keyVars = vars;
+    try {
+      const template = await loadTemplateSchema(templateId);
+      if (template) keyVars = relevantVars(vars, templatePlaceholders(template));
+    } catch (err) {
+      // Never let key optimisation break a render: the full set is correct,
+      // just less cacheable.
+      console.warn('⚠️ Could not resolve template placeholders:', err.message);
+    }
+
+    const varHash = crypto.createHash('md5').update(JSON.stringify(keyVars)).digest('hex');
     const renderCacheKey = `render:${templateId}:${varHash}`;
 
     // 1. Check Redis render cache first

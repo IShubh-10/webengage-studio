@@ -1,5 +1,13 @@
 node_modules/
 .env
 .DS_Store
-backups/
 npm-debug.log*
+
+# Local-only, deliberately not in the repository.
+#
+# These are kept on this machine but not shared: notes that name hosts and
+# instance plans, the SQL record of a schema the app already creates for itself
+# on boot, and one-off dumps. Nothing here is read at runtime — src/db/schema.js
+# is what actually guarantees the tables exist, so a fresh clone still runs.
+documents/
+migrations/

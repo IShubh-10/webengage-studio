@@ -191,7 +191,21 @@ async function buildLayout({ style, canvasWidth, canvasHeight, leadDigits = 2 })
     blockWidth += group.width;
   });
 
-  const labelBand = style.showLabels ? style.labelGap + labelMetrics.height : 0;
+  /*
+   * How far the labels sit below the digits.
+   *
+   * Normally that is just `labelGap`. But when the plate backs only the digits
+   * it still extends `padY` past them, and a label measured from the digits
+   * would be printed onto that overhang — the labels would sit on the plate,
+   * which is the one thing turning `coverLabels` off is meant to prevent. So
+   * the gap is measured from the plate's bottom edge instead, and `labelGap`
+   * keeps meaning "the space you can see" either way.
+   */
+  const plateClearsLabels =
+    style.showLabels && style.plate.mode !== 'none' && !style.plate.coverLabels;
+  const labelOffset = style.labelGap + (plateClearsLabels ? style.plate.padY : 0);
+
+  const labelBand = style.showLabels ? labelOffset + labelMetrics.height : 0;
   const blockHeight = digitHeight + labelBand;
 
   const left = Math.round(style.x * canvasWidth - blockWidth / 2);
@@ -246,7 +260,7 @@ async function buildLayout({ style, canvasWidth, canvasHeight, leadDigits = 2 })
     separators,
     separatorText: separator.width ? style.separator : '',
     separatorFontSize: Math.round(style.fontSize * 0.9),
-    labelBaselineY: top + digitHeight + style.labelGap + labelMetrics.baselineFromInkTop,
+    labelBaselineY: top + digitHeight + labelOffset + labelMetrics.baselineFromInkTop,
     labelHeight: labelMetrics.height,
     fonts: { digit: digitFont, label: labelFont },
   };
@@ -271,6 +285,19 @@ function plateRects(layout, style, { forceBlock = false } = {}) {
   const plate = style.plate;
   if (plate.mode === 'none') return [];
 
+  /*
+   * How far down the plate reaches. `layout.height` spans the digits *and*
+   * the label band beneath them; `layout.digitHeight` stops at the digits, so
+   * the labels sit on the creative itself rather than on the panel. That is
+   * the difference between a solid card and a plate that backs only the
+   * clock, which is the look you want when the labels are meant to read as
+   * part of the artwork.
+   *
+   * With labels turned off the two are already the same number, so the
+   * setting quietly has no effect — no special case needed.
+   */
+  const height = plate.coverLabels ? layout.height : layout.digitHeight;
+
   if (plate.mode === 'unit' && !forceBlock && layout.groups.length > 0) {
     const padX = Math.min(plate.padX, Math.max(0, Math.floor((layout.groupSpacing - 1) / 2)));
 
@@ -278,7 +305,7 @@ function plateRects(layout, style, { forceBlock = false } = {}) {
       x: group.left - padX,
       y: layout.top - plate.padY,
       width: group.width + padX * 2,
-      height: layout.height + plate.padY * 2,
+      height: height + plate.padY * 2,
     }));
   }
 
@@ -287,7 +314,7 @@ function plateRects(layout, style, { forceBlock = false } = {}) {
       x: layout.left - plate.padX,
       y: layout.top - plate.padY,
       width: layout.width + plate.padX * 2,
-      height: layout.height + plate.padY * 2,
+      height: height + plate.padY * 2,
     },
   ];
 }

@@ -6,7 +6,7 @@
 # that belongs to an account rather than to the code.
 #
 # MySQL is NOT here: Render hosts Postgres and Key Value, not MySQL. The database
-# lives with another provider and is reached over TLS — see docs/deploy-render.md.
+# lives with another provider and is reached over TLS — see documents/deploy-render.md (kept locally, not in this repository).
 
 services:
   - type: web
@@ -86,7 +86,7 @@ services:
 
   - type: keyvalue
     name: webengage-studio-cache
-    plan: starter # `free` has no persistence at all — see docs/deploy-render.md
+    plan: starter # `free` has no persistence at all — see documents/deploy-render.md
     region: singapore # must match the web service for the internal URL to work
     # Empty means no public access: only services inside this Render account's
     # private network can reach it, which is all this app needs.

@@ -57,18 +57,46 @@ async function nextTemplateId() {
   return `WEB-${String(num).padStart(2, '0')}`;
 }
 
-// One query for the whole library — the layers travel with the row
+/*
+ * One query for the whole library — the layers travel with the row, and so
+ * does the author, which the studio needs to say whose template this is and to
+ * decide who may change it. LEFT JOIN, so a template outlives the account that
+ * made it instead of disappearing from everyone's library.
+ *
+ * Note what is *not* here: whether the current viewer may edit. This result is
+ * shared between users through the Redis list cache, so a per-viewer answer
+ * must be computed after the cache, not inside it.
+ */
 async function listTemplates() {
   const [rows] = await db.query(
-    'SELECT template_id, background_url, elements, created_at FROM templates ORDER BY created_at DESC'
+    `SELECT t.template_id, t.background_url, t.elements, t.created_at, t.created_by,
+            u.name AS created_by_name
+       FROM templates t
+       LEFT JOIN users u ON u.id = t.created_by
+      ORDER BY t.created_at DESC`
   );
 
   return rows.map((row) => ({
     template_id: row.template_id,
     background_url: row.background_url,
     created_at: row.created_at,
+    created_by: row.created_by,
+    created_by_name: row.created_by_name,
     textElements: parseElements(row.elements),
   }));
+}
+
+/**
+ * Who owns a template, for the permission check before a write. Null when
+ * there is no such row, so a caller can answer 403 and 404 distinctly.
+ * `createdBy` is null for rows written before ownership was recorded.
+ */
+async function templateOwner(templateId) {
+  const [rows] = await db.query('SELECT created_by FROM templates WHERE template_id = ?', [
+    templateId,
+  ]);
+  if (rows.length === 0) return null;
+  return { createdBy: rows[0].created_by };
 }
 
 async function findTemplate(templateId) {
@@ -85,19 +113,24 @@ async function findTemplate(templateId) {
   };
 }
 
-// One upsert replaces the old transaction + delete + bulk insert
-async function saveTemplate({ templateId, backgroundUrl, textElements }) {
+/*
+ * One upsert replaces the old transaction + delete + bulk insert.
+ *
+ * `created_by` is set on insert and left alone on update, so an admin editing
+ * somebody's template does not quietly take ownership of it.
+ */
+async function saveTemplate({ templateId, backgroundUrl, textElements, createdBy = null }) {
   const elementsJson = JSON.stringify(
     textElements.filter((el) => el && typeof el === 'object').map(normalizeElement)
   );
 
   await db.query(
-    `INSERT INTO templates (template_id, background_url, elements)
-       VALUES (?, ?, ?)
+    `INSERT INTO templates (template_id, background_url, elements, created_by)
+       VALUES (?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          background_url = VALUES(background_url),
          elements = VALUES(elements)`,
-    [templateId, backgroundUrl, elementsJson]
+    [templateId, backgroundUrl, elementsJson, createdBy]
   );
 }
 
@@ -116,6 +149,7 @@ module.exports = {
   nextTemplateId,
   listTemplates,
   findTemplate,
+  templateOwner,
   saveTemplate,
   deleteTemplate,
   updateBackgroundUrl,

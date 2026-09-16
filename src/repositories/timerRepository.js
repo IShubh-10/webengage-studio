@@ -32,9 +32,20 @@ async function nextTimerId() {
   return `TMR-${String(number).padStart(2, '0')}`;
 }
 
+/*
+ * The creator comes back with every row because the library needs it twice:
+ * to say whose timer this is, and to decide whether this viewer may change it.
+ * LEFT JOIN rather than an inner one — a timer outlives the account that made
+ * it, and a deleted colleague must not make their timers disappear from
+ * everyone else's library.
+ */
 async function listTimers() {
   const [rows] = await db.query(
-    'SELECT timer_id, name, config, created_at, updated_at FROM timers ORDER BY created_at DESC'
+    `SELECT t.timer_id, t.name, t.config, t.created_at, t.updated_at, t.created_by,
+            u.name AS created_by_name
+       FROM timers t
+       LEFT JOIN users u ON u.id = t.created_by
+      ORDER BY t.created_at DESC`
   );
 
   return rows.map((row) => ({
@@ -42,8 +53,24 @@ async function listTimers() {
     name: row.name,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    created_by: row.created_by,
+    created_by_name: row.created_by_name,
     config: parseConfig(row.config),
   }));
+}
+
+/**
+ * Who owns a timer, for the permission check before a write.
+ *
+ * Returns `null` when there is no such row, so a caller can tell "you may not
+ * touch this" apart from "this does not exist" and answer 403 or 404
+ * accordingly. `createdBy` is null for rows written before ownership was
+ * recorded.
+ */
+async function timerOwner(timerId) {
+  const [rows] = await db.query('SELECT created_by FROM timers WHERE timer_id = ?', [timerId]);
+  if (rows.length === 0) return null;
+  return { createdBy: rows[0].created_by };
 }
 
 async function findTimer(timerId) {
@@ -76,4 +103,12 @@ async function deleteTimer(timerId) {
   return result.affectedRows > 0;
 }
 
-module.exports = { parseConfig, nextTimerId, listTimers, findTimer, saveTimer, deleteTimer };
+module.exports = {
+  parseConfig,
+  nextTimerId,
+  listTimers,
+  findTimer,
+  timerOwner,
+  saveTimer,
+  deleteTimer,
+};

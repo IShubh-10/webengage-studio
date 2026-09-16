@@ -36,6 +36,10 @@
         previewToken: 0,
         block: null,
         naturalWidth: 0,
+        // Set when the open timer belongs to someone else: the builder becomes
+        // a viewer. See setReadOnly().
+        readOnly: false,
+        owner: '',
     };
 
     function defaultConfig() {
@@ -57,7 +61,7 @@
                 showLabels: true,
                 labels: { days: 'DAYS', hours: 'HOURS', minutes: 'MINS', seconds: 'SECS' },
                 labelFontSize: 13, labelColor: '#ffffff', labelGap: 8, labelTracking: 1,
-                plate: { mode: 'none', color: '#000000', opacity: 0.45, radius: 10, padX: 18, padY: 14 },
+                plate: { mode: 'none', color: '#000000', opacity: 0.45, radius: 10, padX: 18, padY: 14, coverLabels: true },
             },
             expired: { mode: 'message', text: 'SALE ENDED', color: '#ffffff', fontSize: 42, imageUrl: '' },
         };
@@ -65,21 +69,17 @@
 
     /* ------------------------------------------------------------- toast */
 
-    let toastTimer = null;
-    function toast(message, kind) {
-        const node = $('toast');
-        node.textContent = message;
-        node.className = `toast show${kind ? ' ' + kind : ''}`;
-        clearTimeout(toastTimer);
-        toastTimer = setTimeout(() => node.classList.remove('show'), 3600);
-    }
+    // Shared with every other page — window.toast in shell.js, styled by
+    // .toast in theme.css. Called through rather than captured, so this does
+    // not depend on the two scripts' load order.
+    const toast = (message, kind) => window.toast(message, kind);
 
     /* -------------------------------------------------------------- views */
 
     window.switchView = function switchView(key) {
         const view = key === 'library' ? 'library' : 'builder';
-        document.querySelectorAll('.page-view').forEach((node) => node.classList.remove('active'));
-        $(`view-${view}`).classList.add('active');
+        // The same attribute the head script sets before first paint.
+        document.documentElement.dataset.view = view;
 
         const url = new URL(window.location.href);
         url.searchParams.set('view', view);
@@ -150,6 +150,7 @@
         config.style.plate.radius = Number($('plateRadius').value) || 0;
         config.style.plate.padX = Number($('platePadX').value) || 0;
         config.style.plate.padY = Number($('platePadY').value) || 0;
+        config.style.plate.coverLabels = $('plateCoverLabels').checked;
 
         config.expired.mode = $('expiredMode').value;
         config.expired.text = $('expiredText').value;
@@ -205,6 +206,7 @@
         $('plateRadius').value = config.style.plate.radius;
         $('platePadX').value = config.style.plate.padX;
         $('platePadY').value = config.style.plate.padY;
+        $('plateCoverLabels').checked = config.style.plate.coverLabels !== false;
 
         $('expiredMode').value = config.expired.mode;
         $('expiredText').value = config.expired.text;
@@ -274,6 +276,7 @@
             $('stage').style.display = 'none';
             $('canvasEmpty').style.display = '';
             $('canvasMeta').textContent = '';
+            endDragVisuals();
             return;
         }
 
@@ -312,7 +315,14 @@
         } catch (err) {
             if (token === state.previewToken) $('canvasMeta').textContent = err.message;
         } finally {
-            if (token === state.previewToken) $('stage').classList.remove('busy');
+            if (token === state.previewToken) {
+                $('stage').classList.remove('busy');
+                // The dragged crop and the dimming are held from pointerup
+                // until here — dropping them earlier would show the clock back
+                // at its old position for the length of the round trip. Done
+                // in `finally` so a failed preview cannot leave them stuck on.
+                endDragVisuals();
+            }
         }
     }
 
@@ -363,61 +373,143 @@
 
         const scale = $('previewImage').clientWidth / state.naturalWidth;
         handle.style.display = '';
+        handle.style.transform = '';
         handle.style.left = `${state.block.left * scale}px`;
         handle.style.top = `${state.block.top * scale}px`;
         handle.style.width = `${state.block.width * scale}px`;
         handle.style.height = `${state.block.height * scale}px`;
     }
 
+    /**
+     * Paint the clock itself inside the drag handle.
+     *
+     * The preview is one flat image with the timer already drawn into it, so
+     * there is nothing to pick up and move: dragging the handle used to slide
+     * an empty outline away from a timer that stayed where it was. Setting the
+     * preview as the handle's background, offset by the block's position,
+     * makes the handle show exactly the pixels it covers — so what moves under
+     * the cursor is the clock.
+     *
+     * The crop carries the patch of creative that was behind the clock, which
+     * is what makes it read as a piece being lifted rather than a selection
+     * box. The image underneath is dimmed for the same reason: the timer still
+     * drawn at the old position recedes instead of competing with the one in
+     * your hand.
+     */
+    function paintHandle(scale) {
+        const handle = $('blockHandle');
+        const image = $('previewImage');
+
+        handle.style.backgroundImage = `url("${image.src}")`;
+        handle.style.backgroundSize = `${image.clientWidth}px ${image.clientHeight}px`;
+        handle.style.backgroundPosition =
+            `${-state.block.left * scale}px ${-state.block.top * scale}px`;
+    }
+
+    /** Undo paintHandle. Safe to call when no drag has happened. */
+    function endDragVisuals() {
+        const handle = $('blockHandle');
+        handle.style.backgroundImage = '';
+        handle.style.backgroundSize = '';
+        handle.style.backgroundPosition = '';
+        handle.classList.remove('dragging');
+        $('previewImage').classList.remove('dragging');
+    }
+
     function wireDragging() {
         const handle = $('blockHandle');
         let dragging = null;
+        let frame = null;
 
         handle.addEventListener('pointerdown', (event) => {
-            if (!state.block) return;
+            if (!state.block || !state.naturalWidth) return;
             event.preventDefault();
             handle.setPointerCapture(event.pointerId);
-            handle.classList.add('dragging');
+            handle.classList.add('dragging', 'grabbing');
+            $('previewImage').classList.add('dragging');
 
-            const scale = $('previewImage').clientWidth / state.naturalWidth;
+            const image = $('previewImage');
+            const scale = image.clientWidth / state.naturalWidth;
+
             dragging = {
                 scale,
                 startX: event.clientX,
                 startY: event.clientY,
                 originX: state.config.style.x,
                 originY: state.config.style.y,
-                imageWidth: $('previewImage').clientWidth,
-                imageHeight: $('previewImage').clientHeight,
+                imageWidth: image.clientWidth,
+                imageHeight: image.clientHeight,
+                // Where positionHandle left the handle. Everything below is a
+                // translation from here, so the drag never writes left/top.
+                baseLeft: state.block.left * scale,
+                baseTop: state.block.top * scale,
+                naturalHeight: image.naturalHeight || 0,
+                lastX: event.clientX,
+                lastY: event.clientY,
             };
+
+            paintHandle(scale);
         });
 
-        handle.addEventListener('pointermove', (event) => {
+        /*
+         * Moving is a transform, not a left/top write: left/top re-runs layout
+         * on every pointer event, a transform is composited and does not. The
+         * work is also deferred to the next animation frame, so a burst of
+         * pointermove events between two frames collapses into one update
+         * instead of several that only the last of which is ever seen.
+         */
+        function applyDrag() {
+            frame = null;
             if (!dragging) return;
 
             // The stored position is the centre of the block as a fraction of
             // the canvas, so it survives the creative being re-rendered at a
             // different size.
-            const dx = (event.clientX - dragging.startX) / dragging.imageWidth;
-            const dy = (event.clientY - dragging.startY) / dragging.imageHeight;
+            const dx = (dragging.lastX - dragging.startX) / dragging.imageWidth;
+            const dy = (dragging.lastY - dragging.startY) / dragging.imageHeight;
 
             state.config.style.x = Math.min(1, Math.max(0, dragging.originX + dx));
             state.config.style.y = Math.min(1, Math.max(0, dragging.originY + dy));
 
-            const halfWidth = state.block.width / 2;
-            const halfHeight = state.block.height / 2;
-            const handleNode = $('blockHandle');
-            handleNode.style.left = `${(state.config.style.x * state.naturalWidth - halfWidth) * dragging.scale}px`;
-            handleNode.style.top =
-                `${(state.config.style.y * ($('previewImage').naturalHeight || 0) - halfHeight) * dragging.scale}px`;
+            // Derived from the clamped fractions rather than from the raw
+            // pointer delta, so the handle stops at the edge with the value.
+            const targetLeft =
+                (state.config.style.x * state.naturalWidth - state.block.width / 2) * dragging.scale;
+            const targetTop =
+                (state.config.style.y * dragging.naturalHeight - state.block.height / 2) *
+                dragging.scale;
+
+            handle.style.transform =
+                `translate(${targetLeft - dragging.baseLeft}px, ${targetTop - dragging.baseTop}px)`;
+        }
+
+        handle.addEventListener('pointermove', (event) => {
+            if (!dragging) return;
+            dragging.lastX = event.clientX;
+            dragging.lastY = event.clientY;
+            if (frame === null) frame = requestAnimationFrame(applyDrag);
         });
 
         const finish = (event) => {
             if (!dragging) return;
             dragging = null;
-            handle.classList.remove('dragging');
+
+            if (frame !== null) {
+                cancelAnimationFrame(frame);
+                frame = null;
+            }
+
+            handle.classList.remove('grabbing');
+
             if (event.pointerId !== undefined && handle.hasPointerCapture(event.pointerId)) {
                 handle.releasePointerCapture(event.pointerId);
             }
+
+            // The translation, the crop and the dimming all stay until the new
+            // preview lands — renderPreview's `finally` clears them, and
+            // positionHandle resets the transform. Dropping any of them here
+            // would snap the clock back to where it started for the length of
+            // the round trip.
             renderPreview();
         };
 
@@ -430,8 +522,29 @@
 
     /* -------------------------------------------------------------- embed */
 
+    // The plain URL, for showing the timer inside this app.
     function timerUrl(timerId) {
         return publicUrl(`/api/v1/timer/${timerId}.gif`);
+    }
+
+    /*
+     * The URL that goes in an email, which is not the same thing.
+     *
+     * Gmail does not fetch an image from this server — it fetches it once
+     * through googleusercontent.com and serves that copy to everyone the
+     * message went to, keyed on the URL. One URL for the whole send therefore
+     * means one frozen picture for the whole send: the clock a recipient sees
+     * is the clock at whatever moment the proxy happened to fetch it, and it
+     * only moves when something forces the proxy to fetch again — at which
+     * point it moves for all of them at once.
+     *
+     * Giving every recipient their own URL gives every recipient their own
+     * cache entry. `uid` costs nothing here: the renderer only reads it for
+     * evergreen timers, and it never reaches the response cache key, so a
+     * hundred thousand distinct URLs still share one encode per second.
+     */
+    function embedUrl(timerId) {
+        return `${timerUrl(timerId)}?uid={{user.id}}`;
     }
 
     function updateEmbed() {
@@ -443,7 +556,7 @@
             return;
         }
 
-        const url = timerUrl(id) + (state.config.evergreenSeconds > 0 ? '?uid={{user.id}}' : '');
+        const url = embedUrl(id);
 
         $('embedCode').value =
             `<img src="${url}"\n     width="${width}" alt="Countdown"\n` +
@@ -505,6 +618,8 @@
     async function startNew() {
         state.config = defaultConfig();
         state.savedTimerId = '';
+        // Whatever you were looking at, your own new timer is yours to edit.
+        setReadOnly(false);
 
         const response = await window.apiFetch('/api/v1/timers/next-id');
         const data = await response.json();
@@ -519,6 +634,71 @@
 
         writeForm();
         renderPreview();
+    }
+
+    /* --------------------------------------------------- read-only mode
+
+       A timer belongs to whoever made it. Anyone can open anyone's to see how
+       it was put together — which fonts, which deadline, which backplate —
+       but only the owner and admins can change one. That is the same rule the
+       save and delete endpoints enforce; this mirrors it so the UI never
+       invites an action the server will refuse.
+
+       Everything is switched off except the things that still make sense on
+       someone else's timer: starting your own, playing the real GIF, and
+       copying the embed code.
+    */
+    const ALWAYS_ENABLED = ['newBtn', 'animateBtn', 'copyEmbedBtn', 'copyUrlBtn'];
+
+    // `readonly` keeps a field legible, focusable and selectable while refusing
+    // edits, which is what a viewer wants. The rest of the input types do not
+    // support it, so those have to be disabled outright.
+    const READONLY_CAPABLE = ['text', 'number', 'url', 'datetime-local', 'search', 'email'];
+
+    function lockControl(node, locked) {
+        if (node.tagName === 'TEXTAREA' || READONLY_CAPABLE.includes(node.type)) {
+            node.readOnly = locked;
+            return;
+        }
+        node.disabled = locked;
+    }
+
+    function setReadOnly(on, ownerName) {
+        state.readOnly = Boolean(on);
+        state.owner = ownerName || '';
+
+        const layout = document.querySelector('.builder-layout');
+        layout.classList.toggle('read-only', state.readOnly);
+
+        layout.querySelectorAll('input, select, textarea, button').forEach((node) => {
+            if (ALWAYS_ENABLED.includes(node.id)) return;
+            // Generated by the app, and the embed box is readonly by design.
+            if (node.id === 'timerId' || node.id === 'embedCode') return;
+            /*
+             * The group headers open and close the collapsible sections. They
+             * look like buttons but they are disclosure, not editing — and
+             * Labels, After it ends and Advanced all start collapsed, so
+             * disabling these sealed exactly the settings a viewer came to
+             * read.
+             */
+            if (node.classList.contains('group-title')) return;
+            lockControl(node, state.readOnly);
+        });
+
+        /*
+         * Some controls are disabled for reasons of their own — Frames is off
+         * whenever looping is on, because a loop is always 60 frames. Blanket
+         * re-enabling would undo that, so the conditional rules get the last
+         * word on the way out of read-only. On the way in they must not, which
+         * is why this is only called in one direction.
+         */
+        if (!state.readOnly) syncConditionalFields();
+
+        const banner = $('readOnlyBanner');
+        banner.style.display = state.readOnly ? 'block' : 'none';
+        banner.textContent = state.readOnly
+            ? `${state.savedTimerId} belongs to ${state.owner || 'another member'} — everything here is theirs to change. You can read the settings, play the GIF and copy the embed code.`
+            : '';
     }
 
     /* ----------------------------------------------------------- library */
@@ -548,6 +728,14 @@
             ? `${Math.round(timer.config.evergreenSeconds / 3600)}h from first open`
             : `${timer.config.endAt || 'no deadline set'} ${timer.config.timezone || ''}`.trim();
 
+        /*
+         * Whether this viewer may change the timer is the server's answer, not
+         * one worked out here — `canEdit` comes back with the row. Hiding the
+         * buttons is a courtesy; the write endpoints enforce the same rule and
+         * would refuse anyway.
+         */
+        const owner = timer.created_by_name || 'someone who has since left';
+
         card.innerHTML = `
             <img class="timer-thumb" alt="${timer.name}" src="${timerUrl(timer.timer_id)}" loading="lazy" />
             <div class="timer-card-body">
@@ -556,17 +744,32 @@
                     <span class="badge accent"></span>
                 </div>
                 <p class="timer-meta"></p>
+                <p class="timer-owner"></p>
                 <div class="btn-row">
-                    <button class="btn small" data-action="edit">Edit</button>
+                    <button class="btn small" data-action="edit">${timer.canEdit ? 'Edit' : 'Open to view'}</button>
                     <button class="btn small" data-action="copy">Copy URL</button>
-                    <button class="btn small danger" data-action="delete">Delete</button>
+                    ${timer.canEdit ? '<button class="btn small danger" data-action="delete">Delete</button>' : ''}
                 </div>
             </div>`;
 
         card.querySelector('h3').textContent = timer.name;
         card.querySelector('.badge').textContent = timer.timer_id;
         card.querySelector('.timer-meta').textContent = deadline;
+        card.querySelector('.timer-owner').textContent = timer.canEdit
+            ? `by ${owner}`
+            : `by ${owner} — view only`;
 
+        card.querySelector('[data-action="copy"]').addEventListener('click', (event) =>
+            copyText(embedUrl(timer.timer_id), event.currentTarget)
+        );
+
+        /*
+         * Opening is the same work whether or not you may edit — the builder
+         * is also the only place the full configuration is legible, so it
+         * doubles as the viewer. `setReadOnly` runs after writeForm, because
+         * writeForm only fills the controls in and does not care whether they
+         * are enabled.
+         */
         card.querySelector('[data-action="edit"]').addEventListener('click', () => {
             state.config = timer.config;
             state.savedTimerId = timer.timer_id;
@@ -574,13 +777,13 @@
             $('timerIdBadge').textContent = timer.timer_id;
             $('timerName').value = timer.name;
             writeForm();
+            setReadOnly(!timer.canEdit, timer.created_by_name);
             switchView('builder');
             renderPreview();
+            if (!timer.canEdit) toast(`Viewing ${timer.timer_id} — read only`, 'ok');
         });
 
-        card.querySelector('[data-action="copy"]').addEventListener('click', (event) =>
-            copyText(timerUrl(timer.timer_id), event.currentTarget)
-        );
+        if (!timer.canEdit) return card;
 
         card.querySelector('[data-action="delete"]').addEventListener('click', async () => {
             if (!window.confirm(`Delete ${timer.timer_id}? Any campaign using it starts showing nothing.`)) return;
@@ -672,7 +875,7 @@
         );
         $('copyUrlBtn').addEventListener('click', (event) => {
             if (!state.savedTimerId) return toast('Save the timer first', 'error');
-            copyText(timerUrl(state.savedTimerId), event.currentTarget);
+            copyText(embedUrl(state.savedTimerId), event.currentTarget);
         });
 
         wireDragging();
@@ -683,6 +886,8 @@
         await loadTemplates();
         await startNew();
 
-        if (new URLSearchParams(window.location.search).get('view') === 'library') switchView('library');
+        // The head script already picked the view, so this only has the
+        // library's contents left to fetch — the switch itself has happened.
+        if (document.documentElement.dataset.view === 'library') loadLibrary();
     });
 })();

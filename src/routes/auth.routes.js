@@ -40,6 +40,7 @@ const {
   deleteUser,
   touchLastLogin,
 } = require('../repositories/userRepository');
+const { rateLimit } = require('../middleware/rateLimit');
 const {
   ALLOWED_EMAIL_DOMAIN,
   EMAIL_REGEX,
@@ -49,7 +50,27 @@ const {
   OTP_TTL_SECONDS,
   OTP_RESEND_COOLDOWN_SECONDS,
   WEBENGAGE_API_KEY,
+  RATE_LIMIT_AUTH,
+  RATE_LIMIT_WINDOW_SECONDS,
 } = require('../config');
+
+/*
+ * The credential endpoints, capped per IP.
+ *
+ * `OTP_RESEND_COOLDOWN_SECONDS` already spaces out resends for one phone
+ * number, but it is keyed on the number — a script walking a list of numbers
+ * never trips it, and every one of those attempts sends a real message that
+ * costs real money. This is keyed on the caller instead, which is the thing
+ * the two have in common.
+ *
+ * It applies equally to login: `verifyOtp` limits wrong codes per session, but
+ * nothing limited password guesses at all.
+ */
+const authRateLimit = rateLimit({
+  name: 'auth',
+  limit: RATE_LIMIT_AUTH,
+  windowSeconds: RATE_LIMIT_WINDOW_SECONDS,
+});
 
 router.get('/api/v1/auth/status', async (req, res) => {
   try {
@@ -96,7 +117,7 @@ async function validateRegistration({ name, email, phone }) {
   return null;
 }
 
-router.post('/api/v1/auth/otp/send', async (req, res) => {
+router.post('/api/v1/auth/otp/send', authRateLimit, async (req, res) => {
   try {
     await ensureAuthSchema();
 
@@ -147,7 +168,7 @@ router.post('/api/v1/auth/otp/send', async (req, res) => {
   }
 });
 
-router.post('/api/v1/auth/register', async (req, res) => {
+router.post('/api/v1/auth/register', authRateLimit, async (req, res) => {
   try {
     await ensureAuthSchema();
 
@@ -203,7 +224,7 @@ router.post('/api/v1/auth/register', async (req, res) => {
   }
 });
 
-router.post('/api/v1/auth/login', async (req, res) => {
+router.post('/api/v1/auth/login', authRateLimit, async (req, res) => {
   try {
     await ensureAuthSchema();
 

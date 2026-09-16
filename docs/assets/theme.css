@@ -271,3 +271,38 @@ label,
     width: 14px;
     height: 14px;
 }
+
+/* Toast ---------------------------------------------------------------------
+   The app's one transient message: bottom right, out of the way of the work.
+   Was written inline in timers.html; it lives here so every page gets the same
+   one from window.toast() in shell.js rather than growing its own. */
+.toast {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    z-index: 60;
+    display: none;
+    max-width: 340px;
+    padding: 11px 15px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--panel-bg);
+    box-shadow: var(--shadow-menu);
+    font-size: 13px;
+}
+
+.toast.show {
+    display: block;
+}
+
+.toast.error {
+    border-color: var(--danger-border);
+    background: var(--danger-wash);
+    color: var(--danger);
+}
+
+.toast.ok {
+    border-color: var(--ok-border);
+    background: var(--ok-wash);
+    color: var(--ok);
+}

@@ -54,4 +54,45 @@ async function requireAdminPage(req, res, next) {
   }
 }
 
-module.exports = { requireAuth, requireAdmin, requireAuthPage, requireAdminPage };
+/**
+ * Is this user allowed to change something someone else may have made?
+ *
+ * The rule the studio uses everywhere: the person who created it, or an admin.
+ * Everyone else can look at it — nothing here restricts reading, because a
+ * shared library is the point.
+ *
+ * The role is read from the database rather than taken from the session, for
+ * the same reason `resolveAdmin` does it: a cookie issued before someone was
+ * promoted — or after they were demoted — would otherwise carry the old answer
+ * for up to seven days.
+ *
+ * A row with no `createdBy` predates ownership being recorded. It falls
+ * through to the admin check rather than being treated as unowned and editable
+ * by anyone, because the safe reading of "nobody claims this" is "not yours".
+ */
+async function canManage(user, createdBy) {
+  if (!user) return false;
+
+  if (createdBy !== null && createdBy !== undefined && Number(createdBy) === Number(user.uid)) {
+    return true;
+  }
+
+  const row = await loadUserRow(user.uid);
+  return Boolean(row && row.role === 'admin');
+}
+
+/** True when this user is an admin right now, per the database. */
+async function isAdminUser(user) {
+  if (!user) return false;
+  const row = await loadUserRow(user.uid);
+  return Boolean(row && row.role === 'admin');
+}
+
+module.exports = {
+  requireAuth,
+  requireAdmin,
+  requireAuthPage,
+  requireAdminPage,
+  canManage,
+  isAdminUser,
+};

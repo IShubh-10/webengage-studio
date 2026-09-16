@@ -10,11 +10,13 @@ const redisState = require('../config/redis').state;
 const { LRUCache, bufferCache, metadataCache } = require('../lib/cache');
 const { SingleFlight } = require('../lib/singleflight');
 const { onInvalidate } = require('../lib/invalidation');
-const { httpAgent, httpsAgent } = require('../lib/httpAgents');
+const { assertFetchableUrl } = require('../lib/urlGuard');
 const {
   IMAGE_FETCH_HEADERS,
   IMAGE_CACHE_TTL_SECONDS,
   IMAGE_CACHE_REFRESH_SECONDS,
+  IMAGE_MAX_BYTES,
+  IMAGE_FETCH_TIMEOUT_MS,
 } = require('../config');
 
 // When each Redis key last had its TTL re-asserted, so a memory hit does not
@@ -72,6 +74,18 @@ async function loadImageBuffer(src) {
     return null;
   }
 
+  /*
+   * Before the caches, not after.
+   *
+   * The obvious place for this is next to the fetch, but the caches sit in
+   * front of the fetch — so a URL that was allowed once would keep being
+   * served from memory or Redis for as long as its entry lived, no matter what
+   * the rules said now. Anything cached before this check existed would stay
+   * readable too. The verdict is memoized inside the guard, so this does not
+   * cost a DNS lookup per render.
+   */
+  await assertFetchableUrl(src);
+
   const cacheKey = `img_buffer:${src}`;
 
   // 1. Check in-memory LRU first (fastest)
@@ -100,26 +114,88 @@ async function loadImageBuffer(src) {
   return inFlightFetches.run(cacheKey, () => fetchAndCache(src, cacheKey));
 }
 
+/**
+ * Read the body, refusing to allocate more than IMAGE_MAX_BYTES for it.
+ *
+ * `arrayBuffer()` would buffer whatever arrives, which for a URL the caller
+ * chose is an unbounded allocation in a process that also has to serve
+ * everyone else. Content-Length is checked first because it is free, then the
+ * running total is checked as chunks arrive — a remote is under no obligation
+ * to send that header, or to be honest in it.
+ */
+async function readCapped(response, src) {
+  const declared = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > IMAGE_MAX_BYTES) {
+    throw new Error(`image is ${declared} bytes, over the ${IMAGE_MAX_BYTES} limit`);
+  }
+
+  const chunks = [];
+  let total = 0;
+
+  for await (const chunk of response.body) {
+    total += chunk.length;
+    if (total > IMAGE_MAX_BYTES) {
+      // Stop pulling bytes rather than reading to the end and then complaining.
+      await response.body.cancel?.().catch(() => {});
+      throw new Error(`image exceeded the ${IMAGE_MAX_BYTES} byte limit`);
+    }
+    chunks.push(chunk);
+  }
+
+  return Buffer.concat(chunks, total);
+}
+
+// A public host that redirects to an internal one would walk straight past a
+// check done only on the URL the caller typed, so redirects are followed by
+// hand and every hop is validated the same way the first one was. Three is
+// more than any image CDN legitimately needs.
+const MAX_REDIRECTS = 3;
+
+async function fetchGuarded(src) {
+  let target = src;
+
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    /*
+     * The caller picks this URL, so it is checked before a socket is opened:
+     * http(s) only, and it must resolve to a public address. Without this the
+     * render endpoint is a read primitive on the private network — see
+     * lib/urlGuard.js.
+     */
+    await assertFetchableUrl(target);
+
+    const response = await fetch(target, {
+      headers: IMAGE_FETCH_HEADERS,
+      redirect: 'manual',
+      // Node's built-in fetch ignores node-fetch's `timeout` option, so until
+      // now there was none and a slow remote held a render slot indefinitely.
+      signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
+    });
+
+    const location = response.headers.get('location');
+    if (response.status >= 300 && response.status < 400 && location) {
+      target = new URL(location, target).toString();
+      continue;
+    }
+
+    return response;
+  }
+
+  throw new Error(`more than ${MAX_REDIRECTS} redirects`);
+}
+
 async function fetchAndCache(src, cacheKey) {
   let buffer;
 
   try {
     const startFetch = Date.now();
-    const protocol = src.startsWith('https') ? 'https' : 'http';
-    const agent = protocol === 'https' ? httpsAgent : httpAgent;
 
-    const r = await fetch(src, {
-      headers: IMAGE_FETCH_HEADERS,
-      agent,
-      timeout: 10000,
-    });
+    const r = await fetchGuarded(src);
 
     if (!r.ok) {
       throw new Error(`HTTP ${r.status}`);
     }
 
-    const arrayBuffer = await r.arrayBuffer();
-    buffer = Buffer.from(arrayBuffer);
+    buffer = await readCapped(r, src);
 
     if (process.env.DEBUG_TIMING === 'true') {
       console.log(`⏱️ Fetched ${src} in ${Date.now() - startFetch}ms (${buffer.length} bytes)`);

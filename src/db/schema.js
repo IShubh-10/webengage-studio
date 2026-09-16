@@ -65,6 +65,19 @@ async function ensureTemplateSchema() {
     console.log('🔧 Added templates.elements JSON column');
   }
 
+  /*
+   * Who made it, so the same owner-or-admin rule that governs timers can
+   * govern templates. Nullable, and deliberately not backfilled: rows written
+   * before this column existed have no recoverable author, and inventing one
+   * would hand somebody edit rights nobody granted. `canManage` treats a null
+   * owner as admin-only — see src/middleware/guards.js.
+   */
+  const [ownerColumn] = await db.query("SHOW COLUMNS FROM templates LIKE 'created_by'");
+  if (ownerColumn.length === 0) {
+    await db.query('ALTER TABLE templates ADD COLUMN created_by INT UNSIGNED NULL DEFAULT NULL');
+    console.log('🔧 Added templates.created_by column');
+  }
+
   await backfillElementsFromLegacyTable();
   templateSchemaReady = true;
 }

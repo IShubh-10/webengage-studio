@@ -12,6 +12,20 @@ const { CORS_ORIGINS, PUBLIC_DIR } = require('./config');
 
 const app = express();
 
+/*
+ * Every request reaches this process through Render's edge, so the socket
+ * address is that proxy for all of them — identical for the whole internet.
+ * Without this, `req.ip` is useless and anything keyed on it (rate limiting,
+ * abuse logs) would put every caller in the same bucket, which for a limiter
+ * means the first flood locks everybody out.
+ *
+ * `X-Forwarded-For` is client-supplied up to the first proxy that rewrites it,
+ * so `req.ip` alone is a hint rather than an identity. `clientIp()` in
+ * middleware/rateLimit.js prefers `CF-Connecting-IP`, which the edge sets fresh
+ * on every request and a caller therefore cannot forge.
+ */
+app.set('trust proxy', true);
+
 app.use(
   cors({
     origin: CORS_ORIGINS,

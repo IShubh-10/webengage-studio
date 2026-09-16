@@ -747,7 +747,11 @@
 
             if (!ok) {
                 showAlert(data.error || 'Could not send the code. Please try again.', 'error');
-                if (!isResend) switchMode('register');
+                // showStep, not switchMode: switchMode clears the alert box on
+                // its way past, which wiped the message we just put there — the
+                // server's reason ("An account with this mobile number already
+                // exists") only ever reached the network tab.
+                if (!isResend) showStep('register');
                 return false;
             }
 

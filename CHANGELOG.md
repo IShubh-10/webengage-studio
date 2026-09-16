@@ -29,7 +29,338 @@ change itself, not afterwards.
 
 ## [Unreleased]
 
+### Added
+
+- **"Open to view" in the timer library**, so anyone can see how a timer was
+  put together even when it is not theirs to change. The builder is the only
+  place the full configuration is legible — deadline, timezone, units, fonts,
+  backplate, expired state — so it doubles as the viewer: the card's first
+  button opens the timer either way and reads `Edit` or `Open to view`
+  depending on who you are.
+
+  `setReadOnly()` in `docs/assets/timers.js` disables all 44 controls in the
+  builder and hides the drag handle, leaving four that still make sense on
+  someone else's timer: `New`, `Play the real GIF`, `Copy snippet` and
+  `Copy URL`. A banner names the owner and says what you can still do. Leaving
+  read-only hands the last word back to `syncConditionalFields()`, because some
+  controls are disabled for reasons of their own — Frames is off whenever
+  looping is on — and a blanket re-enable would undo that.
+
+- **Templates are owned too, on the same rule as timers: creator or admin.**
+  `POST /api/v1/templates` refuses to overwrite a template the caller did not
+  create (making a new one stays open to anyone), and
+  `POST /api/v1/templates/:id/delete` moves from admin-only to owner-or-admin,
+  so the person who made a template can finally clean up after themselves.
+  `GET /api/v1/templates` returns `created_by`, `created_by_name` and a
+  computed `canEdit` per row.
+
+  The studio goes **read-only** when you open someone else's: `setReadOnly()`
+  in `docs/index.html` disables every input, select, textarea and button in the
+  workspace, switches off dragging and resizing on the canvas, disables the
+  per-layer buttons each time the list is rebuilt, and explains itself in a
+  banner. Three controls stay live, because they still make sense on a template
+  that is not yours — `+ New`, `Generate Render URL` and `Copy`. The library
+  card says who made it, labels it `view only`, and its button reads
+  `Open to view` instead of `Edit in Studio`.
+
+  The list cache needed care: it is shared between users, so only the rows go
+  into Redis and `canEdit` is stamped on per request afterwards. Caching the
+  per-viewer answer would have handed the first caller's permissions to
+  everyone else for the next five minutes. The key is versioned
+  (`templates_all_v2`) because the cached shape changed when the author joined
+  the row.
+
+- **Timers are owned: the creator or an admin may change one, everyone else
+  can only look.** Until now any signed-in member could overwrite any timer —
+  the save is an upsert keyed on the id, so retyping somebody else's timer id
+  silently replaced a creative that live campaigns were pointing at — while
+  deleting was admin-only, so the person who made a timer could not clean up
+  after themselves. Both ends were wrong, in opposite directions.
+
+  `canManage(user, createdBy)` in `src/middleware/guards.js` is the one rule:
+  owner, or admin. It reads the role from the database rather than the session
+  for the same reason `resolveAdmin` does — a cookie issued before a promotion
+  or after a demotion would otherwise carry the old answer for up to seven
+  days. A row with no `created_by` predates ownership being recorded and falls
+  through to the admin check, because the safe reading of "nobody claims this"
+  is "not yours".
+
+  Applied in `src/routes/timer.routes.js`: `POST /api/v1/timers` refuses to
+  overwrite a timer the caller does not own (creating a new one is open to
+  anyone), and `POST /api/v1/timers/:id/delete` moves from admin-only to
+  owner-or-admin. The ownership lookup runs before the delete so a caller who
+  may not touch the row is told so instead of getting a misleading 404.
+  `GET /api/v1/timers` now returns `created_by`, `created_by_name` and a
+  computed `canEdit` per row, so the browser never re-derives the rule — it is
+  the same answer the write endpoints will give. The role is looked up once for
+  the whole list, not once per row.
+
+  The library hides Edit and Delete on a timer you cannot change and captions
+  the card `by <name> — view only`; Copy URL stays for everyone, which is what
+  "view" means for a timer. The creator is a `LEFT JOIN` so a timer outlives
+  the account that made it rather than vanishing from everyone's library.
+
+  **Templates have the same hole and are not covered by this.**
+  `POST /api/v1/templates` is open to any member and the table has no
+  `created_by` column, so fixing it needs a migration plus a decision about
+  what the existing ownerless rows should mean.
+
+- **Backplate can stop at the digits, leaving the unit labels on the creative.**
+  A `Plate covers the unit labels` checkbox in the Backplate group, stored as
+  `style.plate.coverLabels` and overridable per URL with `?platelabels=0`. It
+  applies to both plate modes — one panel behind the whole clock, or a tile per
+  unit — and defaults to true, which is the shape every existing timer already
+  has, so nothing saved before this changes.
+
+  `plateRects` in `src/services/countdown/layout.js` measures the plate to
+  `layout.digitHeight` instead of `layout.height` when it is off. On its own
+  that was not enough: the plate still extends `padY` past the digits, and the
+  labels — measured from the digits — landed on that overhang. So `buildLayout`
+  now measures the label gap from the plate's bottom edge in this mode, which
+  keeps `labelGap` meaning "the space you can see" in both. Verified by
+  rendering: plate height 83px covering labels, 64px not, identical when labels
+  are off entirely.
+
+- **`RATE_LIMIT_ENABLED=false` bypasses every per-IP limit, for load testing.**
+  A load generator runs from one address, so it trips a per-IP limit within
+  seconds and the run then measures the limiter instead of the service. The
+  flag is read per request rather than at wiring time, so the middleware stays
+  in the chain either way and a load test differs from production in behaviour
+  only, not in route composition. The concurrency limiter
+  (`RENDER_CONCURRENCY` / `RENDER_QUEUE_LIMIT`) is deliberately untouched by
+  it — that is usually the thing worth measuring. Left on by accident this is
+  an open door, so `src/server.js` prints a warning on every boot while it is
+  set. Documented in `.env.example`.
+
+- **Per-IP rate limiting** (`src/middleware/rateLimit.js`), counted in Redis so
+  the limit is the cluster's and not each worker's, and **failing open** when
+  Redis is unreachable — an outage of the counting layer must not become an
+  outage of the service. Fixed windows, one `INCR` per request. Two ceilings,
+  because the callers are nothing alike:
+
+  - `GET /api/v1/timer/:id.gif` — **600 per minute** (`RATE_LIMIT_GIF`). Set
+    high on purpose. Gmail fetches every recipient's copy through a small pool
+    of Google addresses and a corporate network puts a whole office behind one
+    address, so a single IP legitimately accounts for an entire send; a low
+    limit here would throttle real campaigns long before it ever caught an
+    attacker. A refusal returns **429 with a blank GIF**, never JSON — a JSON
+    body renders as a broken-image icon in somebody's inbox.
+  - `POST /api/v1/auth/otp/send`, `/register`, `/login` — **10 per minute**
+    (`RATE_LIMIT_AUTH`). `OTP_RESEND_COOLDOWN_SECONDS` already spaced out
+    resends, but it is keyed on the phone number, so a script walking a list of
+    numbers never tripped it and every attempt sent a real message at real
+    cost. Nothing limited password guesses at all.
+
+  Tunable through `RATE_LIMIT_GIF`, `RATE_LIMIT_AUTH` and
+  `RATE_LIMIT_WINDOW_SECONDS`. Responses carry `X-RateLimit-Limit`,
+  `X-RateLimit-Remaining` and, on a 429, `Retry-After`.
+
+### Database
+
+- **`WEB-01` assigned to Shubham Kadam (id 7, `shubhamkadam2801@gmail.com`)**,
+  its author. Worth noting for anyone reading later: there are two accounts
+  under that name — id 1 on `@webengage.com`, which is the admin, and id 7 on
+  gmail. This template belongs to the second. All three templates now have a
+  recorded owner, so nothing falls back to the admin-only rule.
+
+- **`WEB-02` and `WEB-03` assigned to Bhavya Gupta (id 5)**, who created them;
+  `WEB-01` is still unclaimed and therefore admin-only. The cached template
+  list was cleared so the change showed immediately rather than after the
+  five-minute TTL.
+
+- **`templates.created_by`** (`INT UNSIGNED NULL`), added by the idempotent
+  migration in `src/db/schema.js` — it runs on boot, so no separate command.
+  Deliberately **not backfilled**: the three rows that predate it have no
+  recoverable author, and inventing one would grant edit rights nobody gave.
+  `canManage` treats a null owner as admin-only, so WEB-01, WEB-02 and WEB-03
+  are admin-editable until somebody claims them. To hand one to its real
+  author: `UPDATE templates SET created_by = <user id> WHERE template_id = '…'`.
+
+### Changed
+
+- **Dragging the clock in the timer builder now moves the clock.** The preview
+  is one flat image with the timer already drawn into it, so there was nothing
+  to pick up: the handle slid away as an empty dashed rectangle while the timer
+  stayed where it was, and you placed it blind. The handle now carries the crop
+  of the preview it covers — set as its background, offset by the block's
+  position — so the pixels under the cursor are the clock, complete with the
+  patch of creative behind it. The image underneath is dimmed to 35% so the
+  copy still drawn at the old position recedes rather than competing.
+
+  Smoothness came from two changes: the handle moves by `transform` instead of
+  `left`/`top`, so a drag composites instead of re-running layout on every
+  pointer event; and the update is deferred to `requestAnimationFrame`, so a
+  burst of pointermove events between two frames collapses into the one update
+  that is actually seen.
+
+  The crop, the dimming and the transform are all held from pointerup until the
+  new preview lands — cleared in `renderPreview`'s `finally`, so a failed
+  preview cannot leave them stuck on. Releasing them at pointerup would snap
+  the clock back to its old position for the length of the round trip. The
+  grabbing cursor is a separate class and reverts immediately.
+
+- **Saving in the Dynamic Images builder now confirms with a toast**, bottom
+  right, the same as the timer builder — the confirmation belongs next to the
+  button you just pressed, not in a panel you may have scrolled away from. The
+  inline `#alert` banner still handles loading, deleting and the rest.
+
+  While moving it: a rejected save used to say nothing at all. Only
+  `response.ok` was handled, so a 4xx left the page looking like the template
+  had been stored. It now surfaces the server's error, and a network failure
+  says the template was not saved rather than failing silently.
+
+### Architecture
+
+- **One toast, shared.** The implementation was written inline in
+  `docs/timers.html` and would have had to be copied to use it anywhere else.
+  The styles moved to `.toast` in `docs/assets/theme.css` and the behaviour to
+  `window.toast(message, kind)` in `docs/assets/shell.js`, which creates its
+  own node on demand — a page opts in by calling it, with no markup to
+  remember. `docs/assets/timers.js` calls through to it and its local copy is
+  gone.
+
+### Security
+
+- **The public render endpoint was a server-side request forgery hole.** A
+  template can use a placeholder as an image source — WEB-01's second layer is
+  `src: "{{image}}"` — so `?image=…` was a URL the caller chose and this server
+  fetched, with no validation anywhere in that path. Not the blind kind either:
+  the response is composited into the PNG the caller gets back, so anything
+  image-decodable on the private network was readable from the open internet.
+  Reproduced locally before the fix: `?image=http://127.0.0.1:3000/api/v1/timer/TMR-01.gif`
+  returned a 108KB PNG with the internal content drawn into it, against 61KB
+  for a normal render.
+
+  New `src/lib/urlGuard.js` refuses anything that is not http(s), carries
+  credentials, or resolves to a loopback, private, link-local, CGNAT,
+  multicast or reserved address — every address the name resolves to, not just
+  the first. IPv4-mapped IPv6 is unwrapped and checked as IPv4, which matters
+  because `new URL()` rewrites `[::ffff:127.0.0.1]` as `[::ffff:7f00:1]` and a
+  regex looking for dotted quads walks straight past it. Redirects are followed
+  by hand, three hops maximum, with every hop validated — a public host that
+  302s to an internal one would otherwise step around a check done only on the
+  URL the caller typed.
+
+  The check runs **before the image caches, not next to the fetch**. The caches
+  sit in front of the fetch, so a URL allowed once would keep being served for
+  as long as its bytes lived, whatever the rules said afterwards — and anything
+  cached before the guard existed would have stayed readable. Verdicts are
+  memoized for `IMAGE_GUARD_TTL_MS` so this does not cost a DNS lookup per
+  render, refusals included, so a loop on blocked hosts cannot turn the
+  endpoint into a DNS amplifier.
+
+  `IMAGE_HOST_ALLOWLIST` is empty by default, meaning any public host. Setting
+  it is strictly stronger and is the only thing that fully closes DNS
+  rebinding — the residual risk is written down at the top of `urlGuard.js`
+  rather than left implicit.
+
+- **The render endpoint had no rate limit and an unbounded cache key.** Hashing
+  the whole query string meant `?junk=1`, `?junk=2`, `?junk=3` were three cache
+  entries producing three identical images, so a caller could force unlimited
+  fresh composites — measured at 4.5s each on the live instance — simply by
+  counting, filling Redis on the way. It now keys on the placeholders the
+  template actually contains, the same reduction `cacheVars` has done on the
+  timer path since it was written. Junk parameters collapse onto one entry:
+  `?city=d&junk=1..3` all return `HIT-REDIS` where each was a `MISS` before.
+  `RATE_LIMIT_RENDER` (600/min per IP) closes the rest.
+
+- **No size cap or timeout on a fetched image.** `arrayBuffer()` buffered
+  whatever arrived from a URL the caller picked, and the 10s `timeout` option
+  in `images.js` was node-fetch syntax that Node's built-in fetch silently
+  ignores — so there was no timeout at all and a slow remote held a render slot
+  indefinitely. Now `AbortSignal.timeout`, plus `IMAGE_MAX_BYTES` checked
+  against `Content-Length` and enforced again while reading, because a remote
+  is under no obligation to send that header or to be honest in it.
+
+### Removed
+
+- **`documents/`, `migrations/`, `nodee.html` and two dead scripts are no
+  longer in the repository.** `documents/` and `migrations/` are now
+  git-ignored and kept local: the notes name hosts and instance plans, and the
+  SQL is a record of a schema `src/db/schema.js` already creates for itself on
+  boot. Nothing there is read at runtime, so a fresh clone still starts — but
+  it also no longer carries the deployment write-up, which is the trade.
+
+  Deleted outright: `nodee.html`, an unrelated "Credit Card Offers" page at the
+  repo root that nothing referenced; `scripts/migrate-templates-to-json.js`,
+  the one-off that emptied `template_elements` (that table is gone, and
+  schema.js has its own backfill, so it could only no-op); and
+  `scripts/single-thread.js`. The dead `npm run migrate` entry went with them.
+
+  `scripts/` keeps `load-test.yml` and `load-test-processor.js`, which pair
+  with the `RATE_LIMIT_ENABLED` switch.
+
 ### Fixed
+
+- **A read-only timer could not be read.** `setReadOnly` disabled every button
+  in the builder, and the collapsible section headers are buttons — so Labels,
+  After it ends and Advanced, all three of which start collapsed, were sealed
+  shut for exactly the person who had opened the timer to look at them. Group
+  headers are disclosure rather than editing and are now left alone.
+
+  The same pass also swapped `disabled` for `readonly` wherever the input type
+  supports it — 26 of the 48 controls. A disabled field is washed out and
+  cannot be focused or selected, which is the right signal for an action you
+  cannot take and the wrong one for a setting you came to read; readonly keeps
+  the value legible and copyable while still refusing edits. The 22 that cannot
+  be readonly (selects, checkboxes, colour swatches) stay disabled but are
+  styled at full contrast in read-only mode, since browsers fade them at the
+  engine level.
+
+- **Registration errors are shown on screen again.** `requestCode` in
+  `docs/login.html` called `showAlert` with the server's reason and then
+  `switchMode('register')`, and `switchMode` starts with `clearAlert()` — so
+  the message was wiped in the same tick it was written. "An account with this
+  mobile number already exists" only ever reached the network tab, and the form
+  looked like it had silently done nothing. It now calls `showStep`, which
+  changes the pane without touching the alert box.
+
+- **Opening the timer library no longer flashes the builder first.**
+  `view-builder` was marked active in the markup and corrected from
+  `DOMContentLoaded`, so arriving at `?view=library` painted the whole builder
+  before the script that knew better had run. The view is now chosen by the
+  inline script in `docs/timers.html`'s head — before the body is parsed — as
+  `data-view` on `<html>`, with CSS selecting on it. `switchView()` sets the
+  same attribute, so the initial render and later switches share one mechanism
+  and cannot disagree.
+
+- **`trust proxy` was never set** (`src/app.js`), so `req.ip` was Render's edge
+  address for every request on earth. Nothing depended on it until now, but any
+  IP-keyed limit added without this would have counted the entire internet in
+  one bucket and locked everybody out on the first flood. `clientIp()` prefers
+  `CF-Connecting-IP`, which that edge rewrites on every request and a caller
+  therefore cannot forge; `X-Forwarded-For` is only a hint, since it is
+  client-supplied up to the first proxy that overwrites it.
+
+- **The timer URL handed to a campaign is now unique per recipient.** The embed
+  snippet and both Copy URL buttons only appended `?uid={{user.id}}` for
+  evergreen timers; a fixed-deadline timer went out as one bare URL for the
+  whole send. Gmail does not fetch the image from this server — it fetches it
+  once through `googleusercontent.com` and serves that copy to every recipient,
+  keyed on the URL. One URL for a send is therefore one frozen clock for the
+  send: it shows whatever the proxy happened to fetch, and it only moves when
+  something forces a re-fetch, at which point it moves for everybody at once.
+  `embedUrl()` in `docs/assets/timers.js` now always carries the placeholder,
+  and the hint under the snippet says why it has to stay.
+
+  This costs nothing on the server: `uid` is in `RESERVED_QUERY_KEYS` so it
+  never becomes a template variable, and `renderTimer` only reads it for
+  evergreen timers, so it is not part of the response cache key. Distinct
+  recipients still share one encode per second — measured at 389ms for the
+  first URL and 32ms for the next, which is the sprite bundle being reused.
+
+  Note what this does *not* fix: nothing can make an email client re-fetch on
+  every open. The endpoint already sends `no-store` and renders fresh bytes on
+  every request (verified against the deployment: two fetches three seconds
+  apart return different ETags and a lower `X-Timer-Remaining`, and a
+  conditional request with a stale ETag gets a `200`, never a `304`). Clients
+  that honour those headers show a live clock; Gmail's proxy applies its own
+  TTL regardless. For a reader sitting on the message the animation itself is
+  the answer: with `loop` on and seconds among the units, the seconds column
+  runs a full 59→00 cycle and stays exactly correct no matter how long the
+  cached copy is watched, because `(s - k) mod 60` is what a real clock reads
+  `k` seconds later. Only minutes and above drift. See the comment on
+  `buildGif` in `src/services/countdown/index.js`.
 
 - **API calls from the GitHub Pages site reach the API.** Every request was
   written as a bare `/api/v1/...`, which resolves against whichever host loaded

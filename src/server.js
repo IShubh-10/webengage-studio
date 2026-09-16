@@ -96,7 +96,12 @@ const redisState = require('./config/redis').state;
 const { initRedis } = require('./config/redis');
 const { initInvalidation, closeInvalidation } = require('./lib/invalidation');
 const { ensureAuthSchema, ensureTemplateSchema, ensureTimerSchema } = require('./db/schema');
-const { PORT, WEBENGAGE_API_KEY, WEBENGAGE_OTP_URL } = require('./config');
+const {
+  PORT,
+  WEBENGAGE_API_KEY,
+  WEBENGAGE_OTP_URL,
+  RATE_LIMIT_ENABLED,
+} = require('./config');
 
 const server = app.listen(PORT, async () => {
   await initRedis();
@@ -133,6 +138,16 @@ const server = app.listen(PORT, async () => {
       '⚠️ WEBENGAGE_API_KEY is not set — registration OTPs will NOT be delivered.\n' +
         '   Add it to .env (see .env.example) and restart:  WEBENGAGE_API_KEY=your-key\n' +
         '   Until then, each code is printed in this log so sign-up can still be tested.'
+    );
+  }
+
+  // Left off after a load test, this is an open door — say so every boot
+  // rather than letting it disappear into the deploy log.
+  if (!RATE_LIMIT_ENABLED) {
+    console.warn(
+      '⚠️ RATE_LIMIT_ENABLED=false — every per-IP rate limit is bypassed.\n' +
+        '   This is the load-testing switch. Unset it before serving real traffic:\n' +
+        '   OTP sends, login attempts and timer GIF requests are all uncapped.'
     );
   }
 

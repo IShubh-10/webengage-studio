@@ -12,11 +12,12 @@ const { scanDelete } = require('../lib/redisOps');
 const { publishInvalidate } = require('../lib/invalidation');
 const { s3Client, PutObjectCommand } = require('../config/s3');
 const { ensureTemplateSchema } = require('../db/schema');
-const { requireAuth, requireAdmin } = require('../middleware/guards');
+const { requireAuth, canManage, isAdminUser } = require('../middleware/guards');
 const { loadImageBuffer } = require('../services/images');
 const {
   nextTemplateId,
   listTemplates,
+  templateOwner,
   saveTemplate,
   deleteTemplate,
   updateBackgroundUrl,
@@ -32,16 +33,41 @@ router.get('/api/v1/templates/next-id', requireAuth, async (req, res) => {
   }
 });
 
+/*
+ * The list cache is shared between users, so only the rows go in it. Whether
+ * *this* viewer may edit each one is stamped on afterwards — putting a
+ * per-viewer answer inside a shared cache entry would hand the first caller's
+ * permissions to everybody else for the next five minutes.
+ *
+ * The key is versioned because the cached shape changed when the author
+ * joined the row: entries written by the previous release would otherwise be
+ * served for their remaining TTL with no owner on them.
+ */
+const TEMPLATE_LIST_CACHE_KEY = 'templates_all_v2';
+
+async function withEditability(templates, user) {
+  const admin = await isAdminUser(user);
+  return {
+    viewerIsAdmin: admin,
+    templates: templates.map((template) => ({
+      ...template,
+      canEdit: admin || Number(template.created_by) === Number(user.uid),
+    })),
+  };
+}
+
 router.get('/api/v1/templates', requireAuth, async (req, res) => {
   try {
-    const cacheKey = 'templates_all';
-
     // Check Redis first
     if (redisState.connected) {
       try {
-        const cachedList = await redisState.client.get(cacheKey);
+        const cachedList = await redisState.client.get(TEMPLATE_LIST_CACHE_KEY);
         if (cachedList) {
-          return res.json({ success: true, templates: JSON.parse(cachedList) });
+          const { templates, viewerIsAdmin } = await withEditability(
+            JSON.parse(cachedList),
+            req.user
+          );
+          return res.json({ success: true, templates, viewerIsAdmin });
         }
       } catch (err) {
         console.warn('⚠️ Redis get error:', err.message);
@@ -50,16 +76,19 @@ router.get('/api/v1/templates', requireAuth, async (req, res) => {
 
     await ensureTemplateSchema();
 
-    const templates = await listTemplates();
+    const rows = await listTemplates();
 
     // Cache asynchronously (don't block response)
     if (redisState.connected) {
-      redisState.client.set(cacheKey, JSON.stringify(templates), 'EX', 300).catch((err) => {
-        console.warn('⚠️ Redis set error:', err.message);
-      });
+      redisState.client
+        .set(TEMPLATE_LIST_CACHE_KEY, JSON.stringify(rows), 'EX', 300)
+        .catch((err) => {
+          console.warn('⚠️ Redis set error:', err.message);
+        });
     }
 
-    res.json({ success: true, templates });
+    const { templates, viewerIsAdmin } = await withEditability(rows, req.user);
+    res.json({ success: true, templates, viewerIsAdmin });
   } catch (err) {
     console.error('Error fetching templates:', err);
     res.status(500).json({ error: 'Failed to fetch templates' });
@@ -74,6 +103,19 @@ router.post('/api/v1/templates', requireAuth, async (req, res) => {
 
     if (!templateId || !backgroundUrl || !Array.isArray(textElements)) {
       return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    /*
+     * Anyone signed in may create a template. Overwriting one is a different
+     * act: the save is an upsert keyed on the id, so without this check any
+     * member could retype somebody else's template id and replace a creative
+     * that live render URLs are already pointing at.
+     */
+    const owner = await templateOwner(templateId);
+    if (owner && !(await canManage(req.user, owner.createdBy))) {
+      return res.status(403).json({
+        error: 'Only the person who created this template, or an admin, can change it',
+      });
     }
 
     // Upload background to S3 in background (non-blocking)
@@ -104,7 +146,12 @@ router.post('/api/v1/templates', requireAuth, async (req, res) => {
     }
 
     // Array order is layer order, so no layer_order column is needed
-    await saveTemplate({ templateId, backgroundUrl, textElements });
+    await saveTemplate({
+      templateId,
+      backgroundUrl,
+      textElements,
+      createdBy: req.user ? req.user.uid : null,
+    });
 
     await invalidateTemplateCaches(templateId);
 
@@ -115,20 +162,33 @@ router.post('/api/v1/templates', requireAuth, async (req, res) => {
   }
 });
 
-// Removing a template is destructive and permanent, so it is admin-only. Any URL
-// already rendering this template starts returning 404 once it is gone.
-router.post('/api/v1/templates/:templateId/delete', requireAdmin, async (req, res) => {
+/*
+ * Removing a template is destructive and permanent — any URL already rendering
+ * it starts returning 404 — so it is the creator's call or an admin's. It used
+ * to be admin-only, which meant the person who made a template could not clean
+ * up after themselves.
+ */
+router.post('/api/v1/templates/:templateId/delete', requireAuth, async (req, res) => {
   try {
     await ensureTemplateSchema();
 
     const { templateId } = req.params;
-    const removed = await deleteTemplate(templateId);
 
+    const owner = await templateOwner(templateId);
+    if (!owner) return res.status(404).json({ error: 'Template not found' });
+
+    if (!(await canManage(req.user, owner.createdBy))) {
+      return res.status(403).json({
+        error: 'Only the person who created this template, or an admin, can delete it',
+      });
+    }
+
+    const removed = await deleteTemplate(templateId);
     if (!removed) return res.status(404).json({ error: 'Template not found' });
 
     await invalidateTemplateCaches(templateId);
 
-    console.log(`\ud83d\uddd1\ufe0f Template ${templateId} deleted by ${req.adminUser.email}`);
+    console.log(`\ud83d\uddd1\ufe0f Template ${templateId} deleted by ${req.user.email}`);
     res.json({ success: true, templateId, message: 'Template deleted' });
   } catch (err) {
     console.error('Error deleting template:', err);
@@ -148,7 +208,7 @@ router.post('/api/v1/templates/:templateId/delete', requireAdmin, async (req, re
 async function invalidateTemplateCaches(templateId) {
   if (redisState.connected) {
     try {
-      await redisState.client.del(`template_schema:${templateId}`, 'templates_all');
+      await redisState.client.del(`template_schema:${templateId}`, TEMPLATE_LIST_CACHE_KEY);
       // SCAN rather than KEYS: the render cache can hold a key per variable
       // combination, and KEYS blocks the whole server while it walks them.
       await scanDelete(`render:${templateId}:*`);
