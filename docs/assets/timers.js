@@ -528,6 +528,19 @@
     }
 
     /*
+     * The same GIF, fetched for the library's own thumbnails.
+     *
+     * `we_preview=1` tells the server this is the studio looking at its own
+     * work rather than an email being opened, so scrolling the library does
+     * not count as an open of every timer in it — see src/lib/preview.js.
+     * It goes through apiUrl rather than publicUrl because this one is fetched
+     * by this page, not pasted into a campaign.
+     */
+    function timerThumbUrl(timerId) {
+        return window.apiUrl(`/api/v1/timer/${timerId}.gif?we_preview=1`);
+    }
+
+    /*
      * The URL that goes in an email, which is not the same thing.
      *
      * Gmail does not fetch an image from this server — it fetches it once
@@ -737,7 +750,7 @@
         const owner = timer.created_by_name || 'someone who has since left';
 
         card.innerHTML = `
-            <img class="timer-thumb" alt="${timer.name}" src="${timerUrl(timer.timer_id)}" loading="lazy" />
+            <img class="timer-thumb" alt="${timer.name}" src="${timerThumbUrl(timer.timer_id)}" loading="lazy" />
             <div class="timer-card-body">
                 <div class="timer-card-title">
                     <h3></h3>
@@ -747,7 +760,8 @@
                 <p class="timer-owner"></p>
                 <div class="btn-row">
                     <button class="btn small" data-action="edit">${timer.canEdit ? 'Edit' : 'Open to view'}</button>
-                    <button class="btn small" data-action="copy">Copy URL</button>
+                    <button class="btn small" data-action="copy">Copy</button>
+                    <button class="btn small" data-action="stats">Stats</button>
                     ${timer.canEdit ? '<button class="btn small danger" data-action="delete">Delete</button>' : ''}
                 </div>
             </div>`;
@@ -762,6 +776,13 @@
         card.querySelector('[data-action="copy"]').addEventListener('click', (event) =>
             copyText(embedUrl(timer.timer_id), event.currentTarget)
         );
+
+        // How often this one is actually being opened. A plain link rather
+        // than a view in here: the stats page is a tool of its own and knows
+        // how to show a single creative from its query string.
+        card.querySelector('[data-action="stats"]').addEventListener('click', () => {
+            window.location.href = `stats.html?type=timer&id=${encodeURIComponent(timer.timer_id)}`;
+        });
 
         /*
          * Opening is the same work whether or not you may edit — the builder

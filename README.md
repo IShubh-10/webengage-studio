@@ -31,6 +31,8 @@ src/
     s3.js                    S3 client
   lib/
     cache.js                 in-memory LRU caches
+    preview.js               tells the studio's own previews from a real open
+    utcTime.js               UTC timestamps as MySQL strings
     httpAgents.js            keep-alive agents for image fetches
     metrics.js               render counters behind /metrics
     gif.js                   GIF89a writer with per-frame sub-rectangles
@@ -47,6 +49,8 @@ src/
     webengage.js             transactional SMS campaign client
     images.js                cached image loading + dimension parsing
     render.js                the template compositor, shared by PNG and GIF
+    openCounter.js           counts opens in memory, flushes in batches
+    openStats.js             windows, series and the per-creative report
     countdown/
       index.js               builds the GIF: which digits changed, and where
       sprites.js             the cached, precomputed half of a countdown
@@ -58,24 +62,32 @@ src/
     userRepository.js
     templateRepository.js
     timerRepository.js
+    statsRepository.js       every open-stats query, and the batched counter write
   routes/                    HTTP only: validate, call a service, respond
     index.js                 mounts every router
     auth.routes.js           sign-up, sign-in, session, member admin
-    template.routes.js       template CRUD (delete is admin-only)
+    template.routes.js       template CRUD (delete is owner-or-admin)
     render.routes.js         public PNG rendering
     timer.routes.js          public countdown GIF + the builder's endpoints
+    stats.routes.js          open stats for the studio and for one creative
     page.routes.js           HTML entry points, gated by session
     health.routes.js         /health and /metrics
-public/                      the front end (no build step)
-  login.html tools.html index.html admin.html timers.html
+docs/                        the front end (no build step)
+                             named "docs" because GitHub Pages publishes only
+                             from a folder with exactly that name
+  login.html tools.html index.html admin.html timers.html stats.html
   assets/theme.css           design tokens + primitives
   assets/shell.css           nav bar and page frame
   assets/shell.js            navigation, session handling, icon set
+  assets/origin.js           the one place that knows the deployed API origin
   assets/timers.js           the countdown timer builder
+  assets/stats.js            the open-stats page: windows, charts, tables
 migrations/                  reviewable SQL, applied automatically on boot too
 scripts/                     one-off operational scripts
-docs/                        deployment and scaling notes
-                             (countdown-timers.md covers the timer endpoint)
+documents/                   deployment, scaling and design notes — deliberately
+                             not in docs/, which GitHub Pages publishes
+                             (countdown-timers.md covers the timer endpoint,
+                              open-stats.md covers open counting)
 backups/                     JSON exports taken before destructive migrations
 ```
 

@@ -35,6 +35,10 @@ router.get('/timers', requireAuthPage, (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'timers.html'));
 });
 
+router.get('/stats', requireAuthPage, (req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'stats.html'));
+});
+
 /*
  * Friendly aliases so a tool can be linked by name. They redirect rather than
  * serve: a page returned from a nested path would resolve its own relative
@@ -43,5 +47,7 @@ router.get('/timers', requireAuthPage, (req, res) => {
 router.get('/tools/dynamic-images', (req, res) => res.redirect('/studio'));
 
 router.get('/tools/countdown-timers', (req, res) => res.redirect('/timers'));
+
+router.get('/tools/open-stats', (req, res) => res.redirect('/stats'));
 
 module.exports = router;

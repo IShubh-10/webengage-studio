@@ -15,6 +15,7 @@ const router = express.Router();
 const { scanDelete } = require('../lib/redisOps');
 const { renderLimiter } = require('../lib/limiter');
 const { recordMetric } = require('../lib/metrics');
+const { isStudioPreview, STATS_PREVIEW_PARAM } = require('../lib/preview');
 const { ensureTimerSchema } = require('../db/schema');
 const { requireAuth, canManage, isAdminUser } = require('../middleware/guards');
 const { collectVars } = require('../services/render');
@@ -22,6 +23,8 @@ const { renderTimer, BLANK_GIF } = require('../services/countdown');
 const { renderStill } = require('../services/countdown/still');
 const { normalizeTimer, applyQueryOverrides } = require('../services/countdown/config');
 const { loadTimer, invalidateTimer } = require('../services/timers');
+const { trackOpen } = require('../services/openCounter');
+const { deleteAssetOpens } = require('../repositories/statsRepository');
 const {
   nextTimerId,
   listTimers,
@@ -45,6 +48,9 @@ const RESERVED_QUERY_KEYS = new Set([
   'labels', 'labelcolor', 'labelsize',
   'plate', 'platelabels', 'platecolor', 'plateradius', 'plateopacity', 'platepadx', 'platepady',
   'expired', 'expiredmode', 'expiredcolor', 'expiredimage', 'vars',
+  // Not part of the creative: it tells the stats counter this fetch is the
+  // studio looking at its own library rather than an email being opened.
+  STATS_PREVIEW_PARAM,
 ]);
 
 function templateVars(query) {
@@ -106,6 +112,11 @@ router.get('/api/v1/timer/:timerId.gif', gifRateLimit, async (req, res) => {
       res.setHeader('Content-Type', 'image/gif');
       return res.status(404).send(BLANK_GIF);
     }
+
+    // The row exists, so this is a real timer being fetched — unless it is the
+    // studio's own library grid or builder preview, which loads this very
+    // endpoint and must not inflate the numbers. See lib/preview.js.
+    if (!isStudioPreview(req.query)) trackOpen('timer', req.params.timerId);
 
     const timer = applyQueryOverrides(saved.config, req.query);
 
@@ -328,6 +339,14 @@ router.post('/api/v1/timers/:timerId/delete', requireAuth, async (req, res) => {
     }
 
     if (!(await deleteTimer(timerId))) return res.status(404).json({ error: 'Timer not found' });
+
+    // The creative is gone, so its counters are nobody's numbers any more —
+    // and leaving them would keep a deleted timer on the stats page forever.
+    try {
+      await deleteAssetOpens('timer', timerId);
+    } catch (err) {
+      console.warn(`⚠️ Could not clear open stats for ${timerId}:`, err.message);
+    }
 
     await invalidateTimerCaches(timerId);
 

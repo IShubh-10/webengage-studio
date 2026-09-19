@@ -56,6 +56,7 @@ const CANONICAL_PAGE_PATHS = {
   '/index.html': '/studio',
   '/tools.html': '/tools',
   '/timers.html': '/timers',
+  '/stats.html': '/stats',
   '/admin.html': '/admin',
   '/login.html': '/login',
 };
@@ -84,5 +85,21 @@ const IMAGE_FETCH_HEADERS = {
 const PLACEHOLDER_REGEX = /\{\{([\w\-]+)\}\}/g;
 
 app.use(require('./routes'));
+
+/*
+ * An unmatched /api path answers with JSON, not with a page.
+ *
+ * Express's default 404 is an HTML document, so every caller in this app —
+ * all of which do `await response.json()` — turned a missing endpoint into
+ * "Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON". That error
+ * names the symptom and hides the cause, which is almost always a server
+ * running a build from before the endpoint existed. A JSON 404 says it
+ * plainly instead. Scoped to /api/ so pages and static assets are untouched.
+ */
+app.use('/api', (req, res) => {
+  res.status(404).json({
+    error: `No such endpoint: ${req.method} ${req.baseUrl}${req.path}`,
+  });
+});
 
 module.exports = app;

@@ -1,7 +1,8 @@
 /**
  * Schema the server guarantees on boot: the accounts table, the templates table
- * with its JSON elements column, and the countdown timers table. All of them are
- * idempotent, so a fresh clone or another environment upgrades itself on start.
+ * with its JSON elements column, the countdown timers table, and the hourly
+ * open counters behind the stats page. All of them are idempotent, so a fresh
+ * clone or another environment upgrades itself on start.
  *
  * The matching SQL lives in migrations/ for review and manual runs.
  */
@@ -11,6 +12,7 @@ const db = require('../config/db');
 let authSchemaReady = false;
 let templateSchemaReady = false;
 let timerSchemaReady = false;
+let statsSchemaReady = false;
 
 async function ensureAuthSchema() {
   if (authSchemaReady) return;
@@ -152,4 +154,35 @@ async function ensureTimerSchema() {
   timerSchemaReady = true;
 }
 
-module.exports = { ensureAuthSchema, ensureTemplateSchema, ensureTimerSchema };
+/**
+ * Open tracking: how many times each rendered creative has been fetched.
+ *
+ * One row per asset per hour, not one per open. A campaign send is millions of
+ * image fetches; a row each would make this the largest table in the database
+ * within a week and answer every question the studio asks more slowly. An hour
+ * is fine enough to draw a day's shape and coarse enough that a creative costs
+ * 24 rows a day.
+ *
+ * `bucket_hour` is UTC. Day, month and year boundaries belong to whoever is
+ * reading the page, so they are applied at query time from the offset the
+ * browser sends — one stored row then serves a reader in any timezone.
+ */
+async function ensureStatsSchema() {
+  if (statsSchemaReady) return;
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS asset_opens (
+      asset_type   ENUM('template', 'timer') NOT NULL,
+      asset_id     VARCHAR(100) NOT NULL,
+      bucket_hour  DATETIME NOT NULL,
+      opens        INT UNSIGNED NOT NULL DEFAULT 0,
+      last_open_at DATETIME NOT NULL,
+      PRIMARY KEY (asset_type, asset_id, bucket_hour),
+      KEY idx_asset_opens_hour (bucket_hour)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  statsSchemaReady = true;
+}
+
+module.exports = { ensureAuthSchema, ensureTemplateSchema, ensureTimerSchema, ensureStatsSchema };

@@ -103,10 +103,31 @@ async function deleteTimer(timerId) {
   return result.affectedRows > 0;
 }
 
+/**
+ * Ids, names and owners only, for the stats page — without the config JSON
+ * `listTimers` has to parse and normalise for every row.
+ */
+async function listTimerNames() {
+  const [rows] = await db.query(
+    `SELECT t.timer_id, t.name, t.created_by, u.name AS created_by_name
+       FROM timers t
+       LEFT JOIN users u ON u.id = t.created_by
+      ORDER BY t.timer_id ASC`
+  );
+
+  return rows.map((row) => ({
+    id: row.timer_id,
+    name: row.name,
+    createdBy: row.created_by,
+    createdByName: row.created_by_name,
+  }));
+}
+
 module.exports = {
   parseConfig,
   nextTimerId,
   listTimers,
+  listTimerNames,
   findTimer,
   timerOwner,
   saveTimer,

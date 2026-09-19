@@ -143,11 +143,35 @@ function updateBackgroundUrl(templateId, url) {
   return db.query('UPDATE templates SET background_url = ? WHERE template_id = ?', [url, templateId]);
 }
 
+/**
+ * Ids and owners only, for the stats page.
+ *
+ * `listTemplates` pulls every layer of every template as JSON, which is a lot
+ * of bytes to move to answer "what is this creative called". The stats table
+ * needs a row per creative and nothing else.
+ */
+async function listTemplateNames() {
+  const [rows] = await db.query(
+    `SELECT t.template_id, t.created_by, u.name AS created_by_name
+       FROM templates t
+       LEFT JOIN users u ON u.id = t.created_by
+      ORDER BY t.template_id ASC`
+  );
+
+  return rows.map((row) => ({
+    id: row.template_id,
+    name: row.template_id,
+    createdBy: row.created_by,
+    createdByName: row.created_by_name,
+  }));
+}
+
 module.exports = {
   parseElements,
   normalizeElement,
   nextTemplateId,
   listTemplates,
+  listTemplateNames,
   findTemplate,
   templateOwner,
   saveTemplate,

@@ -31,6 +31,128 @@ change itself, not afterwards.
 
 ### Added
 
+- **Open Stats — how many times each creative has actually been opened**, at
+  `/stats`, with the window presets the question is usually asked in: today,
+  last 7 days, last 30 days, this month, last month, this year, last year, and
+  a custom range. Opens are counted to the hour, so the page can show both the
+  shape of a month and the exact date and time of the most recent open.
+
+  Every fetch of the two public endpoints is counted —
+  `GET /api/v1/render/:templateId` (dynamic images) and
+  `GET /api/v1/timer/:timerId.gif` (countdown timers) — including the ones
+  answered from the Redis cache, because a cached answer is still somebody
+  opening the image. A render that 404s is not counted, so a request for an id
+  that does not exist cannot put a row in the stats table.
+
+  Two new endpoints, both behind a session:
+
+  - `GET /api/v1/stats/overview?from=&to=&unit=&tzOffset=` — the headline
+    total, the change against the previous window of the same length, the
+    series, and a row per creative including the ones nobody opened.
+  - `GET /api/v1/stats/asset/:assetType/:assetId?…` — the same window for one
+    creative, plus its hour-of-day profile and its lifetime figures.
+
+  The page itself (`docs/stats.html`, `docs/assets/stats.js`) draws a column
+  chart per hour, day or month — picked from the span — with a hover tooltip,
+  a "Show the numbers" table underneath for anything the chart does not serve,
+  a KPI row, and a sortable-by-opens table of every creative with its share and
+  its last open. Clicking a row opens that creative on its own. Both the range
+  and the open creative live in the query string (`?range=thisMonth`,
+  `?type=timer&id=TMR-01`), so a view can be linked to someone.
+
+  Reached from the profile menu, from a new card on `/tools`, and from a
+  **Stats** button on every card in the template library and the timer library.
+
+### Changed
+
+- **The studio's own previews no longer count as opens.** The template grid and
+  the timer library load the same public render endpoints an email does — which
+  is the point, it is how what you see is provably what the inbox gets — so
+  without a marker, opening a library would have counted as an open of every
+  creative in it. The UI now appends `we_preview=1` to the URLs it loads for
+  itself and `src/lib/preview.js` skips counting those. It is not a security
+  boundary and does not need to be: the worst case is a number that is too low.
+  `we_preview` is also reserved on the timer endpoint, so it never reaches a
+  creative as a template variable.
+
+- The template library card's action row wraps instead of squeezing, now that
+  it carries a fourth button.
+
+### Database
+
+- **New table `asset_opens`** — one row per creative per hour, not one per
+  open: a campaign send is millions of image fetches, and a row each would make
+  this the largest table in the database within a week. An hour is fine enough
+  to draw a day's shape and coarse enough that a creative costs 24 rows a day.
+
+  ```
+  asset_type ENUM('template','timer'), asset_id VARCHAR(100),
+  bucket_hour DATETIME (UTC), opens INT UNSIGNED, last_open_at DATETIME
+  PRIMARY KEY (asset_type, asset_id, bucket_hour)
+  ```
+
+  Created automatically on boot by `ensureStatsSchema()` in `src/db/schema.js`;
+  the matching SQL is `migrations/005_asset_opens.sql` for a manual run. No
+  backfill is possible — counting starts the first time the new build serves an
+  image.
+
+  Deleting a template or a timer now deletes its counters with it, so a removed
+  creative does not sit on the stats page forever.
+
+### Architecture
+
+- **Counting never blocks a response.** `trackOpen()` in
+  `src/services/openCounter.js` increments a number in a Map and returns; a
+  timer drains the Map into one batched
+  `INSERT … ON DUPLICATE KEY UPDATE opens = opens + VALUES(opens)` every
+  `STATS_FLUSH_SECONDS` (15 by default), and `server.js` drains it once more
+  during graceful shutdown. A worker killed mid-interval loses at most one
+  interval of counts — the right trade for a figure whose job is "which
+  creative is working", which is never an invoice. A failed flush goes back
+  into the buffer and merges with whatever arrived meanwhile; `STATS_BUFFER_LIMIT`
+  caps what an outage can accumulate.
+
+- **The reader's calendar, not the server's.** "This month" means the month
+  where the person looking at the page lives, so the browser sends the two ends
+  of the window plus its UTC offset, and the stored UTC buckets are shifted by
+  that offset at query time. One stored row therefore serves a reader in any
+  timezone and nothing about a region is stored. Window ends are deliberately
+  *not* rounded to whole hours: a bucket belongs to the local day its start
+  falls in, so in a half-hour zone (IST is +5:30) rounding local midnight back
+  to the previous whole UTC hour grows a stray column for a day nobody asked
+  about.
+
+- **Timestamps cross the driver as explicit UTC strings, never Date objects**
+  (`src/lib/utcTime.js`). The pool sets no `timezone`, so mysql2 would
+  otherwise serialise a Date through the *process's* local zone and read it
+  back the same way — consistent on one machine, and wrong the moment a
+  deployment's TZ differs from a developer's.
+
+### Fixed
+
+- **An unmatched `/api` path answers with JSON, not with a page.** Express's
+  default 404 is an HTML document, and every caller in this app does
+  `await response.json()` — so a missing endpoint surfaced as
+  `Unexpected token '<', "<!DOCTYPE "... is not valid JSON`, which names the
+  symptom and hides the cause. The cause is almost always a server running a
+  build from before the endpoint existed. `src/app.js` now ends with a JSON
+  404 scoped to `/api`, and the stats page reads its responses through a
+  helper that says so in as many words: *"The server has no
+  /api/v1/stats/overview endpoint. It is running a build from before Open
+  Stats existed — restart it (npm start), or redeploy."*
+
+### Known limits
+
+- **Dynamic-image opens are counted per distinct URL, not per open.** The
+  render endpoint answers with `Cache-Control: immutable`, so Gmail's proxy and
+  every CDN in between fetch a given URL once and serve their copy to everyone
+  after that. Because those URLs are personalised per recipient, the count is
+  close to "recipients who opened at least once" rather than a true open count.
+  Countdown timers have no such gap — they go out `no-store` by necessity, so
+  every open reaches this server and is counted.
+
+### Added
+
 - **"Open to view" in the timer library**, so anyone can see how a timer was
   put together even when it is not theirs to change. The builder is the only
   place the full configuration is legible — deadline, timezone, units, fonts,

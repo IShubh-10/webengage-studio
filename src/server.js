@@ -95,7 +95,13 @@ const db = require('./config/db');
 const redisState = require('./config/redis').state;
 const { initRedis } = require('./config/redis');
 const { initInvalidation, closeInvalidation } = require('./lib/invalidation');
-const { ensureAuthSchema, ensureTemplateSchema, ensureTimerSchema } = require('./db/schema');
+const {
+  ensureAuthSchema,
+  ensureTemplateSchema,
+  ensureTimerSchema,
+  ensureStatsSchema,
+} = require('./db/schema');
+const { flushNow } = require('./services/openCounter');
 const {
   PORT,
   WEBENGAGE_API_KEY,
@@ -131,6 +137,15 @@ const server = app.listen(PORT, async () => {
     console.error('❌ Could not prepare the timers table:', err.message);
   }
 
+  try {
+    await ensureStatsSchema();
+    console.log('✅ Open stats schema ready (asset_opens hourly buckets)');
+  } catch (err) {
+    // Counting is not worth refusing to serve images over: the counter retries
+    // the schema on its next flush, and everything else works meanwhile.
+    console.error('❌ Could not prepare the asset_opens table — stats will be empty:', err.message);
+  }
+
   if (WEBENGAGE_API_KEY) {
     console.log(`✅ OTP delivery configured (${WEBENGAGE_OTP_URL})`);
   } else {
@@ -159,6 +174,11 @@ async function gracefulShutdown() {
 
   server.close(async () => {
     console.log('✅ HTTP server closed');
+
+    // Before the pool goes: whatever this worker has counted since its last
+    // flush is still only in memory, and a deploy would otherwise throw away
+    // the last few seconds of every creative's numbers.
+    await flushNow();
 
     try {
       await closeInvalidation();

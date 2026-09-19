@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png"
+        href="https://afiles.webengage.com/76aba26/8dd7acac-b831-43c8-b1c1-e71673271986.avif" />
+    <title>Open Stats · Webengage Creative Studio</title>
+    <script src="assets/origin.js"></script>
+    <link rel="stylesheet" href="assets/theme.css" />
+    <link rel="stylesheet" href="assets/shell.css" />
+    <style>
+        main {
+            padding: 24px 24px 56px;
+            max-width: 1180px;
+            margin: 0 auto;
+        }
+
+        .page-head {
+            margin-bottom: 20px;
+        }
+
+        .page-head h2 {
+            font-size: 24px;
+            margin-bottom: 6px;
+        }
+
+        .page-head p {
+            font-size: 13.5px;
+            color: var(--text-muted);
+            max-width: 70ch;
+            line-height: 1.6;
+        }
+
+        /* Filters in one row above the charts, so the window a reader is
+           looking at is never further away than the numbers it produced. */
+        .range-bar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 14px;
+            margin-bottom: 18px;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-card);
+        }
+
+        .range-bar .spacer {
+            flex: 1;
+        }
+
+        .range-btn {
+            padding: 7px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-pill);
+            background: #ffffff;
+            color: var(--text-muted);
+            font-family: inherit;
+            font-size: 12.5px;
+            font-weight: 600;
+            line-height: 1;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+        }
+
+        .range-btn:hover {
+            border-color: var(--border-strong);
+            color: var(--text-main);
+        }
+
+        .range-btn.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: #ffffff;
+        }
+
+        .custom-range {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            padding-top: 10px;
+            margin-top: 2px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .custom-range.open {
+            display: flex;
+            flex-wrap: wrap;
+        }
+
+        .custom-range label {
+            margin: 0;
+            font-size: 11px;
+        }
+
+        .custom-range input[type='date'] {
+            width: auto;
+            padding: 7px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            background: #ffffff;
+            color: var(--text-main);
+            font-family: inherit;
+            font-size: 13px;
+        }
+
+        .range-note {
+            font-size: 12px;
+            color: var(--text-faint);
+            white-space: nowrap;
+        }
+
+        /* KPI row ------------------------------------------------------- */
+
+        .kpi-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+
+        .kpi {
+            padding: 16px 18px;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-card);
+        }
+
+        .kpi-label {
+            font-size: 11.5px;
+            font-weight: 600;
+            letter-spacing: 0.4px;
+            color: var(--text-muted);
+        }
+
+        .kpi-value {
+            margin-top: 8px;
+            font-size: 28px;
+            font-weight: 700;
+            line-height: 1.1;
+            letter-spacing: -0.5px;
+            color: var(--text-main);
+        }
+
+        .kpi-value.small {
+            font-size: 19px;
+            letter-spacing: -0.2px;
+        }
+
+        .kpi-sub {
+            margin-top: 6px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .delta {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-weight: 700;
+        }
+
+        .delta.up {
+            color: var(--ok);
+        }
+
+        .delta.down {
+            color: var(--danger);
+        }
+
+        .delta.flat {
+            color: var(--text-faint);
+        }
+
+        /* Charts --------------------------------------------------------- */
+
+        .panel {
+            margin-bottom: 18px;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-card);
+        }
+
+        .panel-head {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 16px 18px 0;
+        }
+
+        .panel-head h3 {
+            font-size: 15px;
+        }
+
+        .panel-head .hint {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .chart-wrap {
+            position: relative;
+            padding: 8px 12px 14px;
+        }
+
+        .chart-wrap svg {
+            display: block;
+            width: 100%;
+            overflow: visible;
+        }
+
+        .chart-empty {
+            padding: 44px 18px;
+            text-align: center;
+            font-size: 13px;
+            color: var(--text-faint);
+        }
+
+        .grid-line {
+            stroke: var(--border-color);
+            stroke-width: 1;
+        }
+
+        .axis-text {
+            fill: var(--text-faint);
+            font-family: inherit;
+            font-size: 10.5px;
+        }
+
+        .axis-text.value {
+            font-variant-numeric: tabular-nums;
+        }
+
+        .bar {
+            fill: var(--primary);
+            transition: opacity 0.12s ease;
+        }
+
+        /* De-emphasis for the hour-of-day chart: the peak hour carries the
+           accent, the rest stay legible enough to compare with each other. */
+        .bar.dim {
+            opacity: 0.45;
+        }
+
+        .bar-hit {
+            fill: transparent;
+            cursor: pointer;
+        }
+
+        .bar-label {
+            fill: var(--text-muted);
+            font-family: inherit;
+            font-size: 10.5px;
+            font-weight: 700;
+            text-anchor: middle;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .chart-tip {
+            position: absolute;
+            z-index: 20;
+            display: none;
+            padding: 7px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            background: var(--panel-bg);
+            box-shadow: var(--shadow-menu);
+            font-size: 12px;
+            line-height: 1.5;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+
+        .chart-tip .tip-value {
+            font-weight: 700;
+        }
+
+        /* The numbers behind the picture, for anyone the picture does not
+           serve — a screen reader, a print-out, a copy-paste into a deck. */
+        .numbers {
+            border-top: 1px solid var(--border-color);
+        }
+
+        .numbers summary {
+            padding: 10px 18px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            cursor: pointer;
+        }
+
+        .numbers summary:hover {
+            color: var(--primary);
+        }
+
+        .numbers .scroll {
+            max-height: 260px;
+            overflow: auto;
+            border-top: 1px solid var(--border-color);
+        }
+
+        /* Tables --------------------------------------------------------- */
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        thead th {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            padding: 10px 14px;
+            background: var(--panel-alt);
+            border-bottom: 1px solid var(--border-color);
+            text-align: left;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+
+        tbody td {
+            padding: 11px 14px;
+            border-bottom: 1px solid var(--border-color);
+            vertical-align: middle;
+        }
+
+        tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        tbody tr.clickable {
+            cursor: pointer;
+        }
+
+        tbody tr.clickable:hover {
+            background: var(--panel-alt);
+        }
+
+        td.num,
+        th.num {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .asset-name {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .asset-name strong {
+            font-weight: 600;
+        }
+
+        .asset-sub {
+            margin-top: 2px;
+            font-size: 11.5px;
+            color: var(--text-faint);
+        }
+
+        /* The share column: a track of the same hue, one step lighter, so a
+           row's weight reads at a glance without a second chart. */
+        .share {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            min-width: 130px;
+        }
+
+        .share-track {
+            flex: 1;
+            height: 6px;
+            border-radius: var(--radius-pill);
+            background: var(--sunken);
+            overflow: hidden;
+        }
+
+        .share-fill {
+            height: 100%;
+            border-radius: var(--radius-pill);
+            background: var(--primary);
+        }
+
+        .share-text {
+            width: 42px;
+            font-size: 11.5px;
+            color: var(--text-muted);
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .muted {
+            color: var(--text-faint);
+        }
+
+        /* Detail view ---------------------------------------------------- */
+
+        .detail-head {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+
+        .detail-thumb {
+            width: 148px;
+            height: 84px;
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            background: var(--panel-alt);
+            overflow: hidden;
+        }
+
+        .detail-thumb img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .detail-title h2 {
+            font-size: 21px;
+        }
+
+        .detail-title p {
+            margin-top: 4px;
+            font-size: 12.5px;
+            color: var(--text-muted);
+        }
+
+        .two-up {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 18px;
+        }
+
+        @media (min-width: 900px) {
+            .two-up {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .two-up .panel {
+                margin-bottom: 0;
+            }
+        }
+
+        .state-note {
+            padding: 34px 18px;
+            text-align: center;
+            font-size: 13px;
+            color: var(--text-faint);
+        }
+    </style>
+    <script>
+        window.STUDIO_SHELL = { active: 'stats' };
+    </script>
+</head>
+
+<body>
+    <div class="app-shell">
+
+        <!-- Nav bar: logo and profile only — navigation lives in the profile menu -->
+        <header class="topnav">
+            <a class="brand" href="tools.html">
+                <h1>Webengage<span>Studio</span></h1>
+            </a>
+            <div class="nav-right">
+                <div id="shellUser"></div>
+            </div>
+        </header>
+
+        <div class="app-content">
+            <main>
+                <div class="page-head">
+                    <h2>Open Stats</h2>
+                    <p>How many times each creative has actually been fetched — every time a countdown GIF
+                        or a rendered image is loaded in an inbox, it is counted here, to the hour.</p>
+                </div>
+
+                <div class="range-bar" id="rangeBar">
+                    <button class="range-btn" data-range="today" type="button">Today</button>
+                    <button class="range-btn" data-range="last7" type="button">Last 7 days</button>
+                    <button class="range-btn active" data-range="last30" type="button">Last 30 days</button>
+                    <button class="range-btn" data-range="thisMonth" type="button">This month</button>
+                    <button class="range-btn" data-range="lastMonth" type="button">Last month</button>
+                    <button class="range-btn" data-range="thisYear" type="button">This year</button>
+                    <button class="range-btn" data-range="lastYear" type="button">Last year</button>
+                    <button class="range-btn" data-range="custom" type="button">Custom…</button>
+                    <div class="spacer"></div>
+                    <span class="range-note" id="rangeNote"></span>
+                    <button class="icon-btn" id="refreshBtn" type="button" title="Refresh"
+                        aria-label="Refresh"></button>
+
+                    <div class="custom-range" id="customRange">
+                        <label for="fromDate">From</label>
+                        <input type="date" id="fromDate" />
+                        <label for="toDate">To</label>
+                        <input type="date" id="toDate" />
+                        <button class="btn small primary" id="applyCustom" type="button">Apply</button>
+                        <span class="range-note">Both days included, in your own timezone.</span>
+                    </div>
+                </div>
+
+                <!-- Overview ------------------------------------------------ -->
+                <div id="overviewView">
+                    <div class="kpi-row" id="overviewKpis"></div>
+
+                    <section class="panel">
+                        <div class="panel-head">
+                            <h3>Opens over time</h3>
+                            <span class="hint" id="overviewChartHint"></span>
+                        </div>
+                        <div class="chart-wrap" id="overviewChart"></div>
+                        <details class="numbers">
+                            <summary>Show the numbers</summary>
+                            <div class="scroll" id="overviewNumbers"></div>
+                        </details>
+                    </section>
+
+                    <section class="panel">
+                        <div class="panel-head">
+                            <h3>By creative</h3>
+                            <span class="hint">Pick a row for its own breakdown</span>
+                        </div>
+                        <div style="overflow-x: auto;">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Creative</th>
+                                        <th>Type</th>
+                                        <th class="num">Opens</th>
+                                        <th>Share</th>
+                                        <th>Last opened</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="assetRows"></tbody>
+                            </table>
+                        </div>
+                        <div class="state-note" id="assetsEmpty" style="display: none;">
+                            Nothing has been opened in this window yet.
+                        </div>
+                    </section>
+                </div>
+
+                <!-- One creative -------------------------------------------- -->
+                <div id="detailView" style="display: none;">
+                    <div class="detail-head">
+                        <button class="btn small" id="backToAll" type="button">All creatives</button>
+                        <div class="detail-thumb" id="detailThumb"></div>
+                        <div class="detail-title">
+                            <h2 id="detailName">—</h2>
+                            <p id="detailMeta"></p>
+                        </div>
+                    </div>
+
+                    <div class="kpi-row" id="detailKpis"></div>
+
+                    <section class="panel">
+                        <div class="panel-head">
+                            <h3>Opens over time</h3>
+                            <span class="hint" id="detailChartHint"></span>
+                        </div>
+                        <div class="chart-wrap" id="detailChart"></div>
+                        <details class="numbers">
+                            <summary>Show the numbers</summary>
+                            <div class="scroll" id="detailNumbers"></div>
+                        </details>
+                    </section>
+
+                    <section class="panel">
+                        <div class="panel-head">
+                            <h3>When it gets opened</h3>
+                            <span class="hint">Opens by hour of your day, across the whole window</span>
+                        </div>
+                        <div class="chart-wrap" id="hourChart"></div>
+                    </section>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="assets/shell.js"></script>
+    <script src="assets/stats.js"></script>
+</body>
+
+</html>

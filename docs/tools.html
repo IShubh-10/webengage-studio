@@ -182,6 +182,17 @@
                         </div>
                     </a>
 
+                    <a class="tool-card" href="stats.html">
+                        <span class="tool-icon" id="iconStats"></span>
+                        <h3>Open Stats</h3>
+                        <p>How many times each image and countdown GIF has actually been opened, to the hour —
+                            over the last 7 or 30 days, this month, last month, this year or last.</p>
+                        <div class="tool-foot">
+                            <span class="tool-open">Open tool <span id="iconOpenStats"></span></span>
+                            <span class="badge ok">Live</span>
+                        </div>
+                    </a>
+
                     <div class="tool-card placeholder">
                         <span class="tool-icon" id="iconSoon"></span>
                         <h3>More tools coming soon</h3>
@@ -198,6 +209,8 @@
         document.getElementById('iconDynamicImages').innerHTML = window.shellIcon('image', 'lg');
         document.getElementById('iconTimers').innerHTML = window.shellIcon('clock', 'lg');
         document.getElementById('iconOpenTimers').innerHTML = window.shellIcon('arrowRight', 'sm');
+        document.getElementById('iconStats').innerHTML = window.shellIcon('chart', 'lg');
+        document.getElementById('iconOpenStats').innerHTML = window.shellIcon('arrowRight', 'sm');
         document.getElementById('iconSoon').innerHTML = window.shellIcon('plus', 'lg');
         document.getElementById('iconOpen').innerHTML = window.shellIcon('arrowRight', 'sm');
     </script>

@@ -14,6 +14,7 @@ const { s3Client, PutObjectCommand } = require('../config/s3');
 const { ensureTemplateSchema } = require('../db/schema');
 const { requireAuth, canManage, isAdminUser } = require('../middleware/guards');
 const { loadImageBuffer } = require('../services/images');
+const { deleteAssetOpens } = require('../repositories/statsRepository');
 const {
   nextTemplateId,
   listTemplates,
@@ -185,6 +186,14 @@ router.post('/api/v1/templates/:templateId/delete', requireAuth, async (req, res
 
     const removed = await deleteTemplate(templateId);
     if (!removed) return res.status(404).json({ error: 'Template not found' });
+
+    // The creative is gone, so its counters are nobody's numbers any more —
+    // and leaving them would keep a deleted template on the stats page forever.
+    try {
+      await deleteAssetOpens('template', templateId);
+    } catch (err) {
+      console.warn(`\u26a0\ufe0f Could not clear open stats for ${templateId}:`, err.message);
+    }
 
     await invalidateTemplateCaches(templateId);
 

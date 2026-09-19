@@ -470,15 +470,8 @@
 
         .template-card-actions {
             display: flex;
-            flex-wrap: nowrap;
+            /* flex-wrap: wrap; */
             gap: 8px;
-        }
-
-        /* Edit spans the row; Copy URL and Delete share the one below. With no
-           Delete button (members) Copy URL spans instead of sitting half-width. */
-        .template-card-actions button:first-child,
-        .template-card-actions button:last-child:nth-child(2) {
-            grid-column: 1 / -1;
         }
 
         .template-card-body button {
@@ -901,15 +894,16 @@
                 templatesGrid.innerHTML = sortedTemplates.map(t => `
       <div class="template-card">
         <div class="template-card-preview">
-          <img src="${apiUrl(`/api/v1/render/${t.template_id}`)}" alt="${t.template_id}" onerror="this.src='${t.background_url}'" />
+          <img src="${apiUrl(`/api/v1/render/${t.template_id}?we_preview=1`)}" alt="${t.template_id}" onerror="this.src='${t.background_url}'" />
         </div>
         <div class="template-card-body">
           <div class="template-card-title">${t.template_id}</div>
           <div class="template-card-meta">Layers: ${t.textElements ? t.textElements.length : 0}</div>
           <div class="template-card-meta">by ${t.created_by_name || 'someone who has since left'}${t.canEdit ? '' : ' &middot; view only'}</div>
           <div class="template-card-actions">
-            <button onclick="loadTemplateIntoStudio('${t.template_id}')">${t.canEdit ? 'Edit in Studio' : 'Open to view'}</button>
-            <button class="secondary" onclick="copyRenderUrlFor('${t.template_id}', this)">Copy URL</button>
+            <button onclick="loadTemplateIntoStudio('${t.template_id}')">${t.canEdit ? 'Edit' : 'Open to view'}</button>
+            <button class="secondary" onclick="copyRenderUrlFor('${t.template_id}', this)">Copy</button>
+            <button class="secondary" onclick="openTemplateStats('${t.template_id}')">Stats</button>
             ${t.canEdit ? `<button class="danger" onclick="deleteTemplate('${t.template_id}')">Delete</button>` : ''}
           </div>
         </div>
@@ -919,6 +913,15 @@
                 templatesGrid.innerHTML = '<p style="color: #ef4444;">Failed to load saved templates.</p>';
             }
         }
+
+        /*
+         * How often this template is actually being rendered. A plain
+         * navigation rather than a panel in here: Open Stats is a tool of its
+         * own, and it knows how to open on a single creative.
+         */
+        window.openTemplateStats = function (templateId) {
+            window.location.href = `stats.html?type=template&id=${encodeURIComponent(templateId)}`;
+        };
 
         window.loadTemplateIntoStudio = async function (templateId) {
             try {

@@ -22,7 +22,9 @@ const {
 } = require('../services/render');
 const { metrics, recordMetric } = require('../lib/metrics');
 const { renderLimiter } = require('../lib/limiter');
+const { trackOpen } = require('../services/openCounter');
 const { rateLimit } = require('../middleware/rateLimit');
+const { isStudioPreview } = require('../lib/preview');
 const { RATE_LIMIT_RENDER, RATE_LIMIT_WINDOW_SECONDS } = require('../config');
 
 /*
@@ -41,6 +43,11 @@ const renderRateLimit = rateLimit({
 
 router.get('/api/v1/render/:templateId', renderRateLimit, async (req, res) => {
   const startTime = Date.now();
+
+  // The studio's own template grid renders every card through this endpoint,
+  // so without this a visit to the library would count as an open of every
+  // creative in it. The UI marks those fetches; see lib/preview.js.
+  const countable = !isStudioPreview(req.query);
 
   try {
     const { templateId } = req.params;
@@ -85,6 +92,10 @@ router.get('/api/v1/render/:templateId', renderRateLimit, async (req, res) => {
           res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
           res.setHeader('X-Cache', 'HIT-REDIS');
           metrics.cacheHits++;
+          // A cached answer is still somebody opening the image. And a cache
+          // entry only exists because a render of this template succeeded, so
+          // reaching here is proof the id is real.
+          if (countable) trackOpen('template', templateId);
           return res.send(cachedPng);
         }
       } catch (err) {
@@ -105,6 +116,10 @@ router.get('/api/v1/render/:templateId', renderRateLimit, async (req, res) => {
         console.warn('⚠️ Redis render cache set error:', err.message);
       });
     }
+
+    // Counted only once the composite succeeded, so a request for a template
+    // that does not exist cannot put a row in the stats table.
+    if (countable) trackOpen('template', templateId);
 
     const renderTime = Date.now() - startTime;
     recordMetric(renderTime);

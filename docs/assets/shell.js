@@ -42,6 +42,7 @@
         link: '<path d="M10.5 13.5a3.5 3.5 0 0 0 5 0l2.8-2.8a3.5 3.5 0 0 0-5-5L12 7"/><path d="M13.5 10.5a3.5 3.5 0 0 0-5 0L5.7 13.3a3.5 3.5 0 0 0 5 5L12 17"/>',
         clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.2V12l3.2 2"/>',
         shieldOff: '<path d="M12 3.2l7 2.6v5.4c0 4.2-2.8 7.4-7 9.6-4.2-2.2-7-5.4-7-9.6V5.8z"/><path d="M9 12.2l2 2 4-4.2"/>',
+        chart: '<path d="M4 20V4"/><path d="M4 20h16"/><path d="M8.5 20v-6"/><path d="M13 20V9.5"/><path d="M17.5 20v-8.5"/>',
     };
 
     // Exposed so pages can use the same icons in their own markup
@@ -76,6 +77,7 @@
                 { key: 'library', label: 'Timer Library', icon: 'library', href: 'timers.html?view=library' },
             ],
         },
+        { key: 'stats', label: 'Open Stats', icon: 'chart', href: 'stats.html' },
         { type: 'label', label: 'Administration', adminOnly: true },
         { key: 'admin', label: 'Members', icon: 'users', href: 'admin.html', adminOnly: true },
     ];

@@ -13,5 +13,6 @@ router.use(require('./page.routes'));
 router.use(require('./template.routes'));
 router.use(require('./render.routes'));
 router.use(require('./timer.routes'));
+router.use(require('./stats.routes'));
 
 module.exports = router;

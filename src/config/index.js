@@ -159,6 +159,36 @@ const RATE_LIMIT_ENABLED = String(process.env.RATE_LIMIT_ENABLED || 'true').toLo
 // better p99 across the board.
 const RENDER_YIELD_FRAMES = Math.max(0, Number(process.env.RENDER_YIELD_FRAMES || 8));
 
+// --- Open tracking -----------------------------------------------------------
+// Every fetch of a rendered creative is counted, so this sits on the hottest
+// path in the app and must never be part of a response's latency. Counts are
+// held in memory and written in one batched statement every few seconds; a
+// worker losing at most one interval's worth on a crash is the deliberate
+// trade for not putting a write in front of every email open.
+const STATS_ENABLED = String(process.env.STATS_ENABLED || 'true').toLowerCase() !== 'false';
+
+// How often the buffer is drained. Short enough that the page is close to live,
+// long enough that a busy minute is a handful of statements rather than
+// thousands.
+const STATS_FLUSH_SECONDS = Math.max(1, Number(process.env.STATS_FLUSH_SECONDS || 15));
+
+// The ceiling on unflushed buckets, so a database outage cannot grow this
+// buffer without bound. Each entry is one asset in one hour, so the only way
+// to reach a large number is a long outage across many creatives — past the
+// limit, new buckets are dropped and counting resumes once a flush succeeds.
+const STATS_BUFFER_LIMIT = Math.max(100, Number(process.env.STATS_BUFFER_LIMIT || 20000));
+
+// The widest span a single stats query may ask for. "Last year" is the longest
+// preset the UI offers; this leaves room for a custom range either side of it
+// without letting a handmade URL ask for a full table scan.
+const STATS_MAX_RANGE_DAYS = Math.max(1, Number(process.env.STATS_MAX_RANGE_DAYS || 800));
+
+// The query parameter that marks a fetch as the studio looking at its own
+// work. The library grids and the builder preview all load the real render
+// endpoints, and without this every visit to the library would inflate the
+// numbers of every creative in it.
+const STATS_PREVIEW_PARAM = 'we_preview';
+
 // --- Sessions ---------------------------------------------------------------
 const SESSION_COOKIE = 'we_studio_session';
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
@@ -335,6 +365,11 @@ module.exports = {
   IMAGE_FETCH_TIMEOUT_MS,
   IMAGE_GUARD_TTL_MS,
   RENDER_YIELD_FRAMES,
+  STATS_ENABLED,
+  STATS_FLUSH_SECONDS,
+  STATS_BUFFER_LIMIT,
+  STATS_MAX_RANGE_DAYS,
+  STATS_PREVIEW_PARAM,
   PUBLIC_DIR,
   SESSION_COOKIE,
   SESSION_TTL_SECONDS,
