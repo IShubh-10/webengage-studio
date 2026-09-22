@@ -1031,6 +1031,48 @@
             } catch (err) { console.error('Error getting next ID', err); }
         }
 
+        /* ------------------------------------------- library card freshness
+
+           A card's picture comes from the same public render endpoint an email
+           uses, and that endpoint answers `Cache-Control: public,
+           max-age=31536000, immutable`. That is right for a campaign — the
+           picture behind a given URL genuinely never changes for a recipient —
+           but the library asks for the very same URL every time, and
+           `immutable` means the browser will not so much as revalidate it. So
+           a card kept showing the creative as it was the first time you looked
+           at it, however many times you edited it afterwards.
+
+           The server was never the problem: saving a template SCAN-deletes
+           `render:<id>:*` from Redis and publishes a cross-worker invalidation,
+           so the next real request re-renders. The stale copy was in the
+           browser.
+
+           The fix is to make the URL change when the creative does. A hash of
+           what the renderer actually draws — the background and the layers —
+           changes exactly then and at no other time, so an edit busts the
+           browser's copy while merely revisiting the library still hits it.
+
+           It costs nothing on the server. The render cache keys on the
+           `{{placeholders}}` a template actually uses, and `v` is not one of
+           them, so every version of this URL still shares one cached PNG.
+        */
+
+        // djb2. This is a cache key, not a checksum — it only has to change
+        // when the content does.
+        function hashString(value) {
+            let hash = 5381;
+            for (let index = 0; index < value.length; index += 1) {
+                hash = ((hash << 5) + hash + value.charCodeAt(index)) | 0;
+            }
+            return (hash >>> 0).toString(36);
+        }
+
+        function previewVersion(template) {
+            return hashString(
+                (template.background_url || '') + JSON.stringify(template.textElements || [])
+            );
+        }
+
         async function fetchSavedTemplates() {
             try {
                 const res = await apiFetch('/api/v1/templates');
@@ -1049,7 +1091,7 @@
                 templatesGrid.innerHTML = sortedTemplates.map(t => `
       <div class="template-card">
         <div class="template-card-preview">
-          <img src="${apiUrl(`/api/v1/render/${t.template_id}?we_preview=1`)}" alt="${t.template_id}" onerror="this.src='${t.background_url}'" />
+          <img src="${apiUrl(`/api/v1/render/${t.template_id}?we_preview=1&v=${previewVersion(t)}`)}" alt="${t.template_id}" onerror="this.src='${t.background_url}'" />
         </div>
         <div class="template-card-body">
           <div class="template-card-title">${t.template_id}</div>

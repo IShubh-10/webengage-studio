@@ -127,6 +127,33 @@ change itself, not afterwards.
   and the renderer clip them identically. Resizing a turned layer is likewise
   no longer clamped to the canvas, for the same reason.
 
+- **Template library cards kept showing the creative as it used to be.** The
+  card thumbnails are fetched from the same public render endpoint an email
+  uses, which answers `Cache-Control: public, max-age=31536000, immutable`.
+  That is right for a campaign, but the library requested a byte-identical URL
+  every time, and `immutable` tells a browser not even to revalidate — so a
+  card kept the picture it was first shown, however many times the template was
+  edited underneath it.
+
+  The server was never at fault: saving SCAN-deletes `render:<id>:*` from Redis
+  and publishes a cross-worker invalidation, so the next real request
+  re-renders. The stale copy was in the browser, and nothing could dislodge it.
+
+  The card URL now carries `&v=`, a short hash of what the renderer actually
+  draws — the background URL and the layers — so it changes exactly when the
+  creative does and at no other time. An edit busts the browser's copy while
+  merely revisiting the library still hits it.
+
+  This costs nothing on the server, which is what makes it the right fix rather
+  than a timestamp or a random token: the render cache keys only on the
+  `{{placeholders}}` a template actually uses, and `v` is not one of them.
+  Measured on a real template, four different `v` values produced one render
+  and three Redis hits, while a genuinely new `{{name}}` still missed as it
+  should.
+
+  The timer library was never affected — the countdown GIF is served no-store,
+  because it is a clock.
+
 - **Text in the studio wrapped onto two lines as a layer was dragged right.**
   An absolutely positioned box with `width: auto` shrink-to-fits against the
   space between it and the right-hand edge of its container, so pushing a
