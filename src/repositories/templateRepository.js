@@ -86,18 +86,6 @@ function normalizeElement(element) {
     borderRadius: clampInt(element.borderRadius, 0, 200, 10),
     paddingX: clampInt(element.paddingX, 0, 200, legacyPadding),
     paddingY: clampInt(element.paddingY, 0, 200, legacyPadding),
-    /*
-     * The size the studio measured for this text, in preview pixels.
-     *
-     * The renderer has no way to measure a string — librsvg lays the text out
-     * only once it draws it — but it needs the box to find the centre of a
-     * rotation and to size a border rectangle. So the browser, which has just
-     * laid the text out to show it, records what it got. Null for layers the
-     * studio has not drawn since this existed; the renderer falls back to an
-     * estimate.
-     */
-    boxWidth: clampInt(element.boxWidth, 1, 20000, null),
-    boxHeight: clampInt(element.boxHeight, 1, 20000, null),
     src: element.src ? String(element.src) : null,
     width: String(element.width || 'auto'),
     height: String(element.height || 'auto'),

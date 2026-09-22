@@ -139,32 +139,101 @@ function textBorderOf(element) {
   };
 }
 
-/**
- * A text layer's box, in preview pixels.
+/*
+ * Measured strings, keyed by the text and the face it is set in.
  *
- * Normally this is what the studio measured with the browser's own font
- * metrics and saved alongside the layer. The estimate below is reached only by
- * a template written straight through the API, or one not opened in the studio
- * since this existed — and it only matters for a layer that is turned or
- * boxed, because an upright unboxed layer is drawn from its top-left corner
- * and never asks how wide it is.
+ * This depends on nothing but the font and the characters, so unlike the SVG
+ * and resize caches it survives a template edit and is never invalidated.
  */
-function textBoxOf(element, text, previewFontSize, border) {
-  const width = parseInt(element.boxWidth, 10);
-  const height = parseInt(element.boxHeight, 10);
+const textInkCache = new LRUCache(1024);
 
-  if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
-    return { width, height };
+// A canvas ceiling, so a pathologically long string cannot ask sharp for a
+// hundred-megapixel scratch buffer. A string wider than this measures as this
+// wide, which caps the border rather than the render.
+const MAX_MEASURE_WIDTH = 8000;
+
+/**
+ * How wide a string actually draws, measured with the renderer that will draw
+ * it: set the text on a transparent canvas, trim the empty margin away, and
+ * read the width back.
+ *
+ * This has to happen here, on the substituted text, rather than in the studio
+ * on the text the designer typed. A layer reading `Hello, {{name}}` is 198px
+ * wide in the studio and 242px wide once `{{name}}` becomes `enter_name` —
+ * and wider still for a longer name. A box measured at design time fits the
+ * placeholder and nothing else, which is the opposite of what a personalised
+ * creative needs.
+ *
+ * Measuring through librsvg also means the number is right even when the host
+ * does not have the requested face: whatever it substitutes is what gets
+ * measured and what gets drawn.
+ */
+async function measureTextInk(text, { fontSize, fontWeight, fontFamily }) {
+  if (!text) return 0;
+
+  const key = `${fontFamily}|${fontSize}|${fontWeight}|${text}`;
+  const cached = textInkCache.get(key);
+  if (cached !== null && cached !== undefined) return cached;
+
+  // Room for the widest plausible face, plus a margin on each side so the trim
+  // finds transparent pixels rather than the edge of the canvas.
+  const margin = Math.ceil(fontSize);
+  const canvasWidth = Math.min(
+    MAX_MEASURE_WIDTH,
+    Math.ceil(fontSize * 1.4 * (text.length + 1)) + margin * 2
+  );
+  const canvasHeight = Math.ceil(fontSize * 3);
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasWidth}" height="${canvasHeight}">
+    <text x="${margin}" y="${Math.round(canvasHeight / 2)}" font-family="${fontFamily}"
+          font-size="${fontSize}" font-weight="${fontWeight}" fill="#ffffff"
+          xml:space="preserve">${escapeXml(text)}</text>
+  </svg>`;
+
+  let inkWidth;
+
+  try {
+    const { info } = await sharp(Buffer.from(svg))
+      .trim({ threshold: 1 })
+      .toBuffer({ resolveWithObject: true });
+    inkWidth = info.width;
+  } catch (err) {
+    // sharp refuses to trim an image it finds uniform — a string that drew
+    // nothing at all. Roughly 0.55em per character is the fallback, and a
+    // box a few pixels out beats no creative.
+    inkWidth = Math.round(text.length * fontSize * 0.55);
   }
 
-  // Roughly 0.55em per character across the sans-serif faces the studio
-  // offers — close enough to keep a rotation centred within a few pixels.
-  const insetX = border ? 2 * (border.width + border.paddingX) : 0;
-  const insetY = border ? 2 * (border.width + border.paddingY) : 0;
+  textInkCache.set(key, inkWidth);
+  return inkWidth;
+}
+
+/**
+ * The box a text layer occupies, in image pixels.
+ *
+ * Only a layer that is boxed or turned needs one; an upright, unboxed layer is
+ * drawn from its top-left corner and never asks how wide it is.
+ */
+async function textLayoutBox(text, font, border, scaleX, scaleY) {
+  const inkWidth = await measureTextInk(text, font);
+
+  const strokeWidth = border ? Math.max(1, Math.round(border.width * scaleY)) : 0;
+  const insetX = border ? Math.round((border.width + border.paddingX) * scaleX) : 0;
+  const insetY = border ? Math.round((border.width + border.paddingY) * scaleY) : 0;
 
   return {
-    width: Math.max(1, Math.round(String(text).length * previewFontSize * 0.55) + insetX),
-    height: Math.max(1, Math.round(previewFontSize * 1.2) + insetY),
+    width: Math.max(1, inkWidth + 2 * insetX),
+    /*
+     * The height comes from the font, not from this particular string. The
+     * studio sets text at `line-height: 1.0`, so the line box is exactly the
+     * font size tall — and deriving it that way keeps the border a constant
+     * height, where measuring the ink would make the box jump the moment a
+     * name happened to contain a descender.
+     */
+    height: Math.max(1, font.fontSize + 2 * insetY),
+    insetX,
+    insetY,
+    strokeWidth,
   };
 }
 
@@ -528,8 +597,7 @@ async function composeTemplate(templateData, vars = {}) {
         }
 
         const text = applyVars(element.text || '', vars);
-        const previewFontSize = parseInt(element.fontSize, 10) || 24;
-        const fontSize = Math.round(previewFontSize * scaleY);
+        const fontSize = Math.round((parseInt(element.fontSize, 10) || 24) * scaleY);
         const fontWeight = sanitizeFontWeight(element.fontWeight);
         const color = sanitizeColor(element.color, '#000000');
         const fontFamily = sanitizeFontFamily(element.fontFamily);
@@ -540,17 +608,18 @@ async function composeTemplate(templateData, vars = {}) {
         const boxLeft = Math.max(0, left);
         const boxTop = Math.max(0, top);
 
-        // Scaled onto the real image from the box the studio measured. Only a
-        // turned or boxed layer consults it.
-        const previewBox = textBoxOf(element, text, previewFontSize, border);
-        const boxWidth = Math.round(previewBox.width * scaleX);
-        const boxHeight = Math.round(previewBox.height * scaleY);
+        /*
+         * Only a boxed or turned layer needs to know its own size, and working
+         * it out costs a measuring render. An upright, unboxed layer skips all
+         * of it and is drawn from its corner exactly as it always was.
+         */
+        const box =
+          border || rotation
+            ? await textLayoutBox(text, { fontSize, fontWeight, fontFamily }, border, scaleX, scaleY)
+            : null;
 
-        // The border sits inside the box, so the text starts one border plus
-        // one padding in — matching box-sizing: border-box in the preview.
-        const strokeWidth = border ? Math.max(1, Math.round(border.width * scaleY)) : 0;
-        const insetX = border ? Math.round((border.width + border.paddingX) * scaleX) : 0;
-        const insetY = border ? Math.round((border.width + border.paddingY) * scaleY) : 0;
+        const boxWidth = box ? box.width : 0;
+        const boxHeight = box ? box.height : 0;
 
         const borderKey = border
           ? `${border.style},${border.width},${border.color},${border.radius},` +
@@ -571,10 +640,21 @@ async function composeTemplate(templateData, vars = {}) {
                 y: boxTop,
                 width: boxWidth,
                 height: boxHeight,
-                strokeWidth,
+                strokeWidth: box.strokeWidth,
                 radius: Math.round(border.radius * scaleX),
               })
             : '';
+
+          /*
+           * Inside a border the text is centred in the box rather than set
+           * from its left edge. The box is built around the measured string,
+           * so centring is what makes the padding read as even on both sides
+           * whatever value was substituted in — and it absorbs the left side
+           * bearing, which a start-anchored string would push to one side.
+           */
+          const anchor = border
+            ? `x="${boxLeft + boxWidth / 2}" text-anchor="middle"`
+            : `x="${boxLeft}"`;
 
           /*
            * The whole layer turns together — the border box and the text
@@ -592,8 +672,8 @@ async function composeTemplate(templateData, vars = {}) {
               <g${transform}>
                 ${rects}
                 <text
-                  x="${boxLeft + insetX}"
-                  y="${boxTop + insetY}"
+                  ${anchor}
+                  y="${boxTop + (box ? box.insetY : 0)}"
                   dy="0.85em"
                   font-size="${fontSize}"
                   font-weight="${fontWeight}"

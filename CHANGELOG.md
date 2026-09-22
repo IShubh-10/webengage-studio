@@ -62,7 +62,10 @@ change itself, not afterwards.
   `double`, with thickness, colour, corner radius, and independent horizontal
   and vertical padding — a label usually wants more breathing room to the left
   and right than above and below. Defaults are 1px thickness, 10px radius and
-  8px padding on both axes. The border is
+  8px padding on both axes.
+
+  The box is sized to the text it actually contains, so it hugs the string at
+  full width however long the substituted value turns out to be. The border is
   drawn as an SVG rectangle behind the text in `composeTemplate` and as a CSS
   border on the layer's content box in the studio. SVG centres a stroke on its
   path where CSS draws a border inside the box, so each rectangle is inset by
@@ -117,8 +120,7 @@ change itself, not afterwards.
 
 - No migration. Layers live in the `templates.elements` JSON column, so the new
   `rotation`, `borderStyle`, `borderWidth`, `borderColor`, `borderRadius`,
-  `paddingX`, `paddingY`, `boxWidth` and `boxHeight` fields needed no schema
-  change. A layer written during the brief window when padding was a single
+  `paddingX` and `paddingY` fields needed no schema change. A layer written during the brief window when padding was a single
   `padding` field still reads correctly: both `normalizeElement` and the
   renderer fall back to it for each axis, so such a layer keeps the exact box
   it had.
@@ -130,15 +132,35 @@ change itself, not afterwards.
 
 ### Architecture
 
-- **The studio measures text for the renderer.** A rotation needs the centre of
-  a text layer and a border needs its box, but the renderer has no font engine
-  with the browser's metrics — librsvg lays text out only as it draws it. So
-  the browser, which has just laid the text out in order to show it, records
-  the box as `boxWidth`/`boxHeight` (in preview pixels) and it travels with the
-  layer. The renderer falls back to a character-count estimate for a layer the
-  studio has never drawn, which only matters if that layer is rotated or
-  boxed — an upright, unboxed layer is drawn from its top-left corner and never
-  asks how wide it is.
+- **A text layer is measured at render time, not at design time.** A rotation
+  needs the centre of a text layer and a border needs its box, and the first
+  attempt had the browser measure the layer it had just drawn and ship the
+  numbers along with it.
+
+  That cannot work for a personalised creative, and the failure is the whole
+  point of the product: the studio lays out `Hello, {{name}}`, which sets 198px
+  wide, while the renderer draws `Hello, enter_name` at 242px and
+  `Hello, Bartholomew Fitzgerald` at 396px. A box measured at design time fits
+  the placeholder and nothing else, so every real recipient overflowed it.
+
+  `measureTextInk` in `src/services/render.js` now measures the substituted
+  string by setting it on a transparent canvas, trimming the margin away and
+  reading the width back — the same librsvg that will draw it, so the number is
+  right even when the host does not have the requested face. Results are cached
+  by text and font; they depend on nothing else, so unlike the SVG and resize
+  caches they survive a template edit.
+
+  Two things fall out of measuring rather than storing. A bordered layer sets
+  its text with `text-anchor="middle"` inside the measured box, so the padding
+  reads as even on both sides whatever was substituted in. And the box height
+  comes from the font size rather than from the string's own ink, so the border
+  keeps a constant height instead of jumping the moment a name contains a
+  descender.
+
+  The cost is one small measuring render per unique string and face, and it is
+  paid only by a layer that is boxed or turned. An upright, unboxed layer is
+  still drawn from its top-left corner and never asks how wide it is — which is
+  why an untouched template still renders byte-identically.
 
 - **Known limits: the countdown clock cannot be rotated yet.** Layers inside a
   template *do* rotate inside a timer creative, because a timer renders its

@@ -1534,23 +1534,6 @@
                 });
 
                 canvasInner.appendChild(elDiv);
-
-                /*
-                 * Record the box the browser just laid out for this text.
-                 *
-                 * The renderer cannot measure a string — it has no font engine
-                 * with the browser's metrics — but it needs the box to know
-                 * where the centre of a rotation is and how big a border
-                 * rectangle should be. So the measurement travels with the
-                 * element and is refreshed every time the preview is drawn.
-                 */
-                if (element.type === 'text') {
-                    const contentBox = elDiv.querySelector('.text-element-content');
-                    if (contentBox) {
-                        element.boxWidth = Math.round(contentBox.offsetWidth);
-                        element.boxHeight = Math.round(contentBox.offsetHeight);
-                    }
-                }
             });
         }
 
