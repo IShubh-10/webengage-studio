@@ -70,6 +70,153 @@ function escapeXml(text) {
     .replace(/'/g, '&#39;');
 }
 
+/* ----------------------------------- layer styling, shared with the studio
+
+   docs/index.html applies these same rules to the 300px preview. They are
+   deliberately written twice rather than shared, because there is no build step
+   between the two — but a change to one without the other is a change to what
+   the studio shows and not to what lands in the inbox.
+*/
+
+/** Degrees clockwise about a layer's own centre, normalised to (-180, 180]. */
+function normalizeRotation(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+
+  let angle = Math.round(number) % 360;
+  if (angle > 180) angle -= 360;
+  if (angle <= -180) angle += 360;
+  return angle;
+}
+
+/*
+ * These reach librsvg inside an SVG attribute, so they are whitelisted rather
+ * than escaped: a colour is either a colour or it is the default, and a value
+ * that is neither never reaches the document at all.
+ */
+function sanitizeColor(value, fallback) {
+  const raw = String(value || '').trim();
+  if (/^#[0-9a-fA-F]{3,8}$/.test(raw)) return raw;
+  if (/^rgba?\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*(,\s*[\d.]+\s*)?\)$/.test(raw)) return raw;
+  if (/^[a-zA-Z]{3,20}$/.test(raw)) return raw;
+  return fallback;
+}
+
+function sanitizeFontFamily(value) {
+  const cleaned = String(value || 'Arial')
+    .replace(/[^A-Za-z0-9 ,._-]/g, '')
+    .trim();
+  return cleaned || 'Arial';
+}
+
+function sanitizeFontWeight(value) {
+  const raw = String(value || 'normal');
+  return /^(normal|bold|bolder|lighter|[1-9]00)$/.test(raw) ? raw : 'normal';
+}
+
+const BORDER_STYLES = ['solid', 'dashed', 'dotted', 'double'];
+
+function clampInt(value, min, max, fallback) {
+  const number = parseInt(value, 10);
+  return Number.isFinite(number) ? Math.max(min, Math.min(max, number)) : fallback;
+}
+
+/** The border box of a text layer, or null when it has none. */
+function textBorderOf(element) {
+  if (!element || !BORDER_STYLES.includes(element.borderStyle)) return null;
+
+  // Layers written before horizontal and vertical padding were separated
+  // carry a single `padding`; it stands in for both axes.
+  const legacyPadding = clampInt(element.padding, 0, 200, 8);
+
+  return {
+    style: element.borderStyle,
+    width: clampInt(element.borderWidth, 1, 40, 1),
+    color: sanitizeColor(element.borderColor, '#000000'),
+    radius: clampInt(element.borderRadius, 0, 200, 10),
+    paddingX: clampInt(element.paddingX, 0, 200, legacyPadding),
+    paddingY: clampInt(element.paddingY, 0, 200, legacyPadding),
+  };
+}
+
+/**
+ * A text layer's box, in preview pixels.
+ *
+ * Normally this is what the studio measured with the browser's own font
+ * metrics and saved alongside the layer. The estimate below is reached only by
+ * a template written straight through the API, or one not opened in the studio
+ * since this existed — and it only matters for a layer that is turned or
+ * boxed, because an upright unboxed layer is drawn from its top-left corner
+ * and never asks how wide it is.
+ */
+function textBoxOf(element, text, previewFontSize, border) {
+  const width = parseInt(element.boxWidth, 10);
+  const height = parseInt(element.boxHeight, 10);
+
+  if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+    return { width, height };
+  }
+
+  // Roughly 0.55em per character across the sans-serif faces the studio
+  // offers — close enough to keep a rotation centred within a few pixels.
+  const insetX = border ? 2 * (border.width + border.paddingX) : 0;
+  const insetY = border ? 2 * (border.width + border.paddingY) : 0;
+
+  return {
+    width: Math.max(1, Math.round(String(text).length * previewFontSize * 0.55) + insetX),
+    height: Math.max(1, Math.round(previewFontSize * 1.2) + insetY),
+  };
+}
+
+/**
+ * The border rectangles for a text layer.
+ *
+ * SVG centres a stroke on its path where CSS draws a border inside the box, so
+ * every rectangle is inset by half its own stroke — without that the studio's
+ * preview and the rendered image disagree by half a border width on all four
+ * sides. 'double' is drawn the way CSS draws it: two lines a third of the
+ * width each, a third of the width apart.
+ */
+function borderRectsSvg(border, box) {
+  const { x, y, width, height, strokeWidth, radius } = box;
+
+  const rect = (inset, stroke, extra = '') => {
+    const rectWidth = Math.max(1, width - 2 * inset);
+    const rectHeight = Math.max(1, height - 2 * inset);
+    const corner = Math.max(0, radius - inset);
+
+    return (
+      `<rect x="${x + inset}" y="${y + inset}" width="${rectWidth}" height="${rectHeight}" ` +
+      `rx="${corner}" ry="${corner}" fill="none" stroke="${border.color}" ` +
+      `stroke-width="${stroke}"${extra} />`
+    );
+  };
+
+  if (border.style === 'double') {
+    const thin = Math.max(1, strokeWidth / 3);
+    return rect(thin / 2, thin) + rect(strokeWidth - thin / 2, thin);
+  }
+
+  if (border.style === 'dashed') {
+    return rect(
+      strokeWidth / 2,
+      strokeWidth,
+      ` stroke-dasharray="${strokeWidth * 3} ${strokeWidth * 2}"`
+    );
+  }
+
+  if (border.style === 'dotted') {
+    // A zero-length dash under a round cap is how SVG draws a round dot.
+    return rect(
+      strokeWidth / 2,
+      strokeWidth,
+      ` stroke-linecap="round" stroke-dasharray="0.01 ${strokeWidth * 1.8}"`
+    );
+  }
+
+  return rect(strokeWidth / 2, strokeWidth);
+}
+
 /* ------------------------------------------------- the template row */
 
 // Redis was already in front of the database here, but a Redis read is still a
@@ -273,12 +420,17 @@ async function composeTemplate(templateData, vars = {}) {
             targetHeight = Math.min(targetHeight, maxHeight);
           }
 
+          const rotation = normalizeRotation(element.rotation);
+
           // Key on the resolved pixel size, not the element's own values: the
           // same box over a differently sized background resolves differently.
-          const resizeCacheKey = `resized:${src}:${targetWidth}x${targetHeight}:${fitMode}`;
-          let inputBuffer = resizedCache.get(resizeCacheKey);
+          // The angle joins the key because what is cached is the turned bytes.
+          const resizeCacheKey = `resized:${src}:${targetWidth}x${targetHeight}:${fitMode}:${rotation}`;
+          let prepared = resizedCache.get(resizeCacheKey);
 
-          if (!inputBuffer) {
+          if (!prepared) {
+            let buffer = imgBuffer;
+
             if (targetWidth || targetHeight) {
               const resizeOpts = {
                 width: targetWidth || undefined,
@@ -289,38 +441,166 @@ async function composeTemplate(templateData, vars = {}) {
               // Only 'cover' crops, so only 'cover' needs a crop position.
               if (fitMode === sharp.fit.cover) resizeOpts.position = sharp.position.centre;
 
-              inputBuffer = await sharp(imgBuffer).resize(resizeOpts).toBuffer();
-            } else {
-              inputBuffer = imgBuffer;
+              buffer = await sharp(imgBuffer).resize(resizeOpts).toBuffer();
             }
 
-            resizedCache.set(resizeCacheKey, inputBuffer);
+            // The box the layer occupies before it is turned. Measured rather
+            // than assumed: 'contain' can return something smaller than the box
+            // it was handed, and 'auto' asks for no resize at all.
+            const placed = await sharp(buffer).metadata();
+
+            if (rotation) {
+              /*
+               * sharp turns an image about its centre and grows the canvas to
+               * fit the corners, leaving the original centred inside a larger
+               * transparent frame. PNG rather than raw, so the alpha that
+               * expansion introduces survives into the composite.
+               */
+              const turned = await sharp(buffer)
+                .rotate(rotation, { background: { r: 0, g: 0, b: 0, alpha: 0 } })
+                .png()
+                .toBuffer({ resolveWithObject: true });
+
+              prepared = {
+                buffer: turned.data,
+                width: turned.info.width,
+                height: turned.info.height,
+                boxWidth: placed.width,
+                boxHeight: placed.height,
+              };
+            } else {
+              prepared = {
+                buffer,
+                width: placed.width,
+                height: placed.height,
+                boxWidth: placed.width,
+                boxHeight: placed.height,
+              };
+            }
+
+            resizedCache.set(resizeCacheKey, prepared);
           }
 
-          return { input: inputBuffer, left: Math.max(0, left), top: Math.max(0, top) };
+          /*
+           * A rotation leaves exactly one point alone — the centre — so the
+           * expanded frame is placed with its centre where the upright box's
+           * centre would have been. At zero degrees the two boxes are the same
+           * size and this reduces to (left, top), so an existing template
+           * renders byte-identically.
+           */
+          let placeLeft = Math.round(left + (prepared.boxWidth - prepared.width) / 2);
+          let placeTop = Math.round(top + (prepared.boxHeight - prepared.height) / 2);
+
+          let input = prepared.buffer;
+
+          /*
+           * A turned layer can hang off the edge of the picture, and sharp
+           * accepts neither a negative offset nor an input running past the
+           * canvas. The overhang is cropped away rather than the layer being
+           * nudged back inside, because nudging would silently move a creative
+           * the studio showed hanging off the edge.
+           */
+          const overhangs =
+            placeLeft < 0 ||
+            placeTop < 0 ||
+            placeLeft + prepared.width > origWidth ||
+            placeTop + prepared.height > origHeight;
+
+          if (overhangs) {
+            const cropLeft = Math.max(0, -placeLeft);
+            const cropTop = Math.max(0, -placeTop);
+            const cropWidth = Math.min(prepared.width - cropLeft, origWidth - Math.max(0, placeLeft));
+            const cropHeight = Math.min(prepared.height - cropTop, origHeight - Math.max(0, placeTop));
+
+            // Entirely outside the picture — there is nothing left to draw.
+            if (cropWidth <= 0 || cropHeight <= 0) return null;
+
+            input = await sharp(input)
+              .extract({ left: cropLeft, top: cropTop, width: cropWidth, height: cropHeight })
+              .png()
+              .toBuffer();
+
+            placeLeft = Math.max(0, placeLeft);
+            placeTop = Math.max(0, placeTop);
+          }
+
+          return { input, left: placeLeft, top: placeTop };
         }
 
         const text = applyVars(element.text || '', vars);
-        const fontSize = Math.round((parseInt(element.fontSize, 10) || 24) * scaleY);
-        const fontWeight = element.fontWeight || 'normal';
-        const color = element.color || '#000000';
-        const fontFamily = element.fontFamily || 'Arial';
+        const previewFontSize = parseInt(element.fontSize, 10) || 24;
+        const fontSize = Math.round(previewFontSize * scaleY);
+        const fontWeight = sanitizeFontWeight(element.fontWeight);
+        const color = sanitizeColor(element.color, '#000000');
+        const fontFamily = sanitizeFontFamily(element.fontFamily);
 
-        const svgCacheKey = `svg:${i}:${text}:${fontSize}:${fontWeight}:${fontFamily}:${color}:${origWidth}x${origHeight}:${left},${top}`;
+        const rotation = normalizeRotation(element.rotation);
+        const border = textBorderOf(element);
+
+        const boxLeft = Math.max(0, left);
+        const boxTop = Math.max(0, top);
+
+        // Scaled onto the real image from the box the studio measured. Only a
+        // turned or boxed layer consults it.
+        const previewBox = textBoxOf(element, text, previewFontSize, border);
+        const boxWidth = Math.round(previewBox.width * scaleX);
+        const boxHeight = Math.round(previewBox.height * scaleY);
+
+        // The border sits inside the box, so the text starts one border plus
+        // one padding in — matching box-sizing: border-box in the preview.
+        const strokeWidth = border ? Math.max(1, Math.round(border.width * scaleY)) : 0;
+        const insetX = border ? Math.round((border.width + border.paddingX) * scaleX) : 0;
+        const insetY = border ? Math.round((border.width + border.paddingY) * scaleY) : 0;
+
+        const borderKey = border
+          ? `${border.style},${border.width},${border.color},${border.radius},` +
+            `${border.paddingX},${border.paddingY}`
+          : 'none';
+
+        const svgCacheKey =
+          `svg:${i}:${text}:${fontSize}:${fontWeight}:${fontFamily}:${color}:` +
+          `${origWidth}x${origHeight}:${boxLeft},${boxTop}:` +
+          `${rotation}:${borderKey}:${boxWidth}x${boxHeight}`;
+
         let svgBuffer = svgCache.get(svgCacheKey);
 
         if (!svgBuffer) {
+          const rects = border
+            ? borderRectsSvg(border, {
+                x: boxLeft,
+                y: boxTop,
+                width: boxWidth,
+                height: boxHeight,
+                strokeWidth,
+                radius: Math.round(border.radius * scaleX),
+              })
+            : '';
+
+          /*
+           * The whole layer turns together — the border box and the text
+           * inside it — about the box centre, which is the point the studio's
+           * `transform-origin: 50% 50%` uses. An unrotated layer gets no
+           * transform at all, so its output is unchanged from before rotation
+           * existed.
+           */
+          const transform = rotation
+            ? ` transform="rotate(${rotation} ${boxLeft + boxWidth / 2} ${boxTop + boxHeight / 2})"`
+            : '';
+
           svgBuffer = Buffer.from(`
             <svg width="${origWidth}" height="${origHeight}" xmlns="http://www.w3.org/2000/svg">
-              <text
-                x="${Math.max(0, left)}"
-                y="${Math.max(0, top)}"
-                dy="0.85em"
-                font-size="${fontSize}"
-                font-weight="${fontWeight}"
-                font-family="${fontFamily}"
-                fill="${color}"
-              >${escapeXml(text)}</text>
+              <g${transform}>
+                ${rects}
+                <text
+                  x="${boxLeft + insetX}"
+                  y="${boxTop + insetY}"
+                  dy="0.85em"
+                  font-size="${fontSize}"
+                  font-weight="${fontWeight}"
+                  font-family="${fontFamily}"
+                  fill="${color}"
+                >${escapeXml(text)}</text>
+              </g>
             </svg>
           `);
           svgCache.set(svgCacheKey, svgBuffer);

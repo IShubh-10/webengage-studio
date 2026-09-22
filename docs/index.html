@@ -232,6 +232,14 @@
             border: 1px dashed transparent;
             cursor: move;
             user-select: none;
+            -webkit-user-select: none;
+            /* Without this a touch-drag scrolls the canvas instead of moving
+               the layer: the browser claims the gesture before pointermove
+               ever fires. */
+            touch-action: none;
+            /* The renderer rotates an image about its centre, so the preview
+               has to agree or the two drift apart as the angle grows. */
+            transform-origin: 50% 50%;
         }
 
         .text-element:hover,
@@ -319,6 +327,80 @@
 
         .resize-handle.r {
             right: -5px;
+        }
+
+        /* Rotation grip: held off the top edge on a stalk, the way every
+           design tool puts it, so it never sits under the corner handles. */
+        .rotate-handle {
+            position: absolute;
+            top: -36px;
+            left: 50%;
+            width: 22px;
+            height: 22px;
+            margin-left: -11px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            background: #ffffff;
+            border: 1.5px solid var(--primary);
+            border-radius: 50%;
+            color: var(--primary);
+            cursor: grab;
+            touch-action: none;
+        }
+
+        .rotate-handle:active {
+            cursor: grabbing;
+        }
+
+        /* The icon must never be the event target: the drag starts on
+           `e.target.classList.contains('rotate-handle')`, and an SVG child
+           would make that test fail wherever the glyph itself is under the
+           pointer. */
+        .rotate-handle .icon {
+            width: 13px;
+            height: 13px;
+            pointer-events: none;
+        }
+
+        .rotate-handle::before {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            width: 1.5px;
+            height: 14px;
+            margin-left: -0.75px;
+            background: var(--primary);
+        }
+
+        .selected .rotate-handle {
+            display: flex;
+        }
+
+        .read-only .rotate-handle {
+            display: none;
+        }
+
+        /* Fingertips need roughly 24px of target. The handles keep their drawn
+           size and gain an invisible margin around them, so the canvas looks
+           identical on a desktop but is actually usable on a phone. */
+        @media (pointer: coarse) {
+
+            .resize-handle::after,
+            .rotate-handle::after {
+                content: '';
+                position: absolute;
+                top: -10px;
+                right: -10px;
+                bottom: -10px;
+                left: -10px;
+            }
+
+            .rotate-handle {
+                top: -42px;
+            }
         }
 
         /* Layers list ----------------------------------------------------- */
@@ -613,6 +695,7 @@
                             </div>
                         </div>
 
+
                         <div id="textOnlyFields">
                             <div class="form-group">
                                 <label for="fontSize">Font Size (px)</label>
@@ -676,6 +759,44 @@
                             <div class="form-group inline">
                                 <label for="textColor">Text Color</label>
                                 <input type="color" id="textColor" value="#000000" />
+                            </div>
+
+                            <div class="form-group">
+                                <label for="borderStyle">Text Border</label>
+                                <select id="borderStyle">
+                                    <option value="none">None</option>
+                                    <option value="solid">Solid</option>
+                                    <option value="dashed">Dashed</option>
+                                    <option value="dotted">Dotted</option>
+                                    <option value="double">Double</option>
+                                </select>
+                            </div>
+
+                            <div id="borderDetailFields" style="display: none;">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                    <div class="form-group">
+                                        <label for="borderWidth">Thickness (px)</label>
+                                        <input type="number" id="borderWidth" value="1" min="1" max="40" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="borderRadius">Corner radius</label>
+                                        <input type="number" id="borderRadius" value="10" min="0" max="200" />
+                                    </div>
+                                </div>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                    <div class="form-group">
+                                        <label for="textPaddingX">Padding X (px)</label>
+                                        <input type="number" id="textPaddingX" value="8" min="0" max="200" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="textPaddingY">Padding Y (px)</label>
+                                        <input type="number" id="textPaddingY" value="8" min="0" max="200" />
+                                    </div>
+                                </div>
+                                <div class="form-group inline">
+                                    <label for="borderColor">Border Color</label>
+                                    <input type="color" id="borderColor" value="#000000" />
+                                </div>
                             </div>
                         </div>
 
@@ -806,6 +927,13 @@
         const imageWidthInput = document.getElementById('imageWidth');
         const imageHeightInput = document.getElementById('imageHeight');
         const imageFitInput = document.getElementById('imageFit');
+        const borderStyleInput = document.getElementById('borderStyle');
+        const borderWidthInput = document.getElementById('borderWidth');
+        const borderColorInput = document.getElementById('borderColor');
+        const borderRadiusInput = document.getElementById('borderRadius');
+        const textPaddingXInput = document.getElementById('textPaddingX');
+        const textPaddingYInput = document.getElementById('textPaddingY');
+        const borderDetailFields = document.getElementById('borderDetailFields');
         const fillBackgroundBtn = document.getElementById('fillBackgroundBtn');
         const addTextBtn = document.getElementById('addTextBtn');
         const updateElementBtn = document.getElementById('updateElementBtn');
@@ -933,11 +1061,29 @@
                     state.templateId = found.template_id;
                     templateIdInput.value = found.template_id;
                     bgUrlInput.value = found.background_url;
+                    lastBackgroundValue = found.background_url || '';
                     state.textElements = found.textElements || [];
+
+                    /*
+                     * Everything that belonged to the template being replaced
+                     * has to go with it.
+                     *
+                     * The Render URL panel used to survive the switch, so
+                     * opening WEB-02, generating its URL and then opening
+                     * WEB-03 left WEB-02's URL sitting under WEB-03 — ready to
+                     * be copied into a campaign pointing at the wrong
+                     * creative. The selection index was stale in the same way:
+                     * it pointed at a layer position in the previous
+                     * template's list.
+                     */
+                    state.selectedElementIndex = -1;
+                    clearGeneratedUrl();
+
                     updateCanvasBackground();
                     // Before the list render, so the layer buttons come out
                     // disabled the first time rather than on a second pass.
                     setReadOnly(!found.canEdit, found.created_by_name);
+                    resetForm();
                     renderTextElementsList();
                     switchTab('studio');
                     showAlert(
@@ -1102,6 +1248,14 @@
             const isImage = elementTypeInput.value === 'image';
             const x = parseInt(textXInput.value) || 0;
             const y = parseInt(textYInput.value) || 0;
+            /*
+             * Rotation is set by dragging the grip on the canvas, not by a
+             * field in this panel, so it is carried across from the layer
+             * being edited rather than read back out of the form. A brand new
+             * layer starts upright.
+             */
+            const editing = state.textElements[state.selectedElementIndex];
+            const rotation = normalizeRotation(editing ? editing.rotation : 0);
 
             if (isImage) {
                 let widthVal = imageWidthInput.value.trim();
@@ -1115,6 +1269,7 @@
                     type: 'image',
                     src: imageSrcInput.value.trim(),
                     x, y,
+                    rotation,
                     width: widthVal,
                     height: heightVal || 'auto',
                     fit: imageFitInput.value
@@ -1125,10 +1280,17 @@
                 type: 'text',
                 text: textContentInput.value.trim(),
                 x, y,
+                rotation,
                 fontSize: parseInt(fontSizeInput.value) || 24,
                 fontWeight: fontWeightInput.value,
                 fontFamily: fontFamilyInput.value,
                 color: textColorInput.value,
+                borderStyle: borderStyleInput.value,
+                borderWidth: parseInt(borderWidthInput.value, 10) || 2,
+                borderColor: borderColorInput.value,
+                borderRadius: parseInt(borderRadiusInput.value, 10) || 0,
+                paddingX: parseInt(textPaddingXInput.value, 10) || 0,
+                paddingY: parseInt(textPaddingYInput.value, 10) || 0,
             };
         }
 
@@ -1142,6 +1304,13 @@
             imageWidthInput.value = 'auto';
             imageHeightInput.value = 'auto';
             imageFitInput.value = 'contain';
+            borderStyleInput.value = 'none';
+            borderWidthInput.value = '1';
+            borderColorInput.value = '#000000';
+            borderRadiusInput.value = '10';
+            textPaddingXInput.value = '8';
+            textPaddingYInput.value = '8';
+            updateBorderFieldsVisibility();
             updateFormForType();
             state.selectedElementIndex = -1;
             addTextBtn.style.display = 'block';
@@ -1155,6 +1324,7 @@
             const el = buildElementFromForm();
             if (!el.text && !el.src) return;
             state.textElements.push(el);
+            clearGeneratedUrl();
             renderTextElements();
             renderTextElementsList();
             resetForm();
@@ -1163,6 +1333,7 @@
         function updateElement() {
             if (state.selectedElementIndex === -1) return;
             state.textElements[state.selectedElementIndex] = buildElementFromForm();
+            clearGeneratedUrl();
             renderTextElements();
             renderTextElementsList();
             resetForm();
@@ -1179,6 +1350,71 @@
             return handles
                 .map((h) => `<div class="resize-handle ${h}" data-handle="${h}"></div>`)
                 .join('');
+        }
+
+        /* ------------------------------------------- rotation and borders
+
+           Both of these have to mean the same thing in two places: here, where
+           a layer is dragged around a 300px preview, and in services/render.js,
+           where the same layer is drawn onto the full-size image. The helpers
+           below are the shared vocabulary — normalizeElement() in the
+           repository clamps the same fields to the same ranges on the way into
+           the database.
+        */
+
+        // Degrees, normalised to (-180, 180]. Keeping the wrap here means the
+        // slider, the grip and a typed value can never disagree.
+        function normalizeRotation(value) {
+            const number = Number(value);
+            if (!Number.isFinite(number)) return 0;
+
+            let angle = Math.round(number) % 360;
+            if (angle > 180) angle -= 360;
+            if (angle <= -180) angle += 360;
+            return angle;
+        }
+
+        const BORDER_STYLES = ['solid', 'dashed', 'dotted', 'double'];
+
+        // Null when the layer has no border, so callers can skip the whole box.
+        function textBorderOf(element) {
+            if (!element || element.type !== 'text') return null;
+            if (!BORDER_STYLES.includes(element.borderStyle)) return null;
+
+            const clamp = (value, min, max, fallback) => {
+                const number = parseInt(value, 10);
+                return Number.isFinite(number) ? Math.max(min, Math.min(max, number)) : fallback;
+            };
+
+            // A layer saved before the split carried a single `padding`, so
+            // that value stands in for both axes when the new fields are
+            // absent — an old bordered layer keeps the box it had.
+            const legacyPadding = clamp(element.padding, 0, 200, 8);
+
+            return {
+                style: element.borderStyle,
+                width: clamp(element.borderWidth, 1, 40, 1),
+                color: element.borderColor || '#000000',
+                radius: clamp(element.borderRadius, 0, 200, 10),
+                paddingX: clamp(element.paddingX, 0, 200, legacyPadding),
+                paddingY: clamp(element.paddingY, 0, 200, legacyPadding),
+            };
+        }
+
+        function rotateHandleMarkup() {
+            // The grip is the only rotation control there is — there is no
+            // field for it in the panel — so it has to say what it does by
+            // itself. window.shellIcon comes from assets/shell.js, loaded
+            // above this script.
+            const icon = window.shellIcon ? window.shellIcon('rotate') : '';
+            return (
+                '<div class="rotate-handle" data-handle="rotate" ' +
+                'title="Drag to rotate. Hold Shift to snap to 15 degrees.">' + icon + '</div>'
+            );
+        }
+
+        function updateBorderFieldsVisibility() {
+            borderDetailFields.style.display = borderStyleInput.value === 'none' ? 'none' : 'block';
         }
 
         // Keeps the canvas preview honest about what the renderer will do.
@@ -1199,6 +1435,12 @@
                 elDiv.style.left = element.x + 'px';
                 elDiv.style.top = element.y + 'px';
 
+                // The renderer rotates about the box centre, and
+                // transform-origin is the centre in the stylesheet, so preview
+                // and output agree at every angle.
+                const angle = normalizeRotation(element.rotation);
+                elDiv.style.transform = angle ? `rotate(${angle}deg)` : '';
+
                 if (element.type === 'image') {
                     const w = String(element.width);
                     const h = String(element.height);
@@ -1213,7 +1455,7 @@
 
                     elDiv.innerHTML = `
             <img src="${imgSrc}" class="layer-img-preview" style="width: 100%; height: 100%; object-fit: ${elementFit(element)}; pointer-events: none;" />
-            ${resizeHandlesMarkup(CORNER_HANDLES.concat(EDGE_HANDLES))}
+            ${resizeHandlesMarkup(CORNER_HANDLES.concat(EDGE_HANDLES))}${rotateHandleMarkup()}
           `;
 
                     const imgEl = elDiv.querySelector('.layer-img-preview');
@@ -1241,29 +1483,74 @@
                     elDiv.style.fontWeight = element.fontWeight;
                     elDiv.style.fontFamily = element.fontFamily;
                     elDiv.style.color = element.color;
+                    /*
+                     * The border goes on the inner content box, not on elDiv:
+                     * elDiv already carries the dashed hover outline and the
+                     * solid selected outline, and a user border there would
+                     * fight with both.
+                     */
+                    const border = textBorderOf(element);
+                    const boxStyle = border
+                        ? `padding: ${border.paddingY}px ${border.paddingX}px; border: ${border.width}px ${border.style} ${border.color}; border-radius: ${border.radius}px;`
+                        : 'padding: 0;';
+
                     elDiv.innerHTML = `
-            <div class="text-element-content" style="line-height: 1.0; display: block; padding: 0; margin: 0;">${element.text}</div>
-            ${resizeHandlesMarkup(CORNER_HANDLES)}
+            <div class="text-element-content" style="line-height: 1.0; display: block; margin: 0; box-sizing: border-box; ${boxStyle}">${element.text}</div>
+            ${resizeHandlesMarkup(CORNER_HANDLES)}${rotateHandleMarkup()}
           `;
                 }
 
-                elDiv.addEventListener('mousedown', (e) => {
+                /*
+                 * Pointer events rather than mouse events: one code path now
+                 * serves a mouse, a finger and a stylus. The canvas used to
+                 * listen for mousedown only, which no touchscreen ever sends,
+                 * so nothing on this page could be dragged on a phone.
+                 */
+                elDiv.addEventListener('pointerdown', (e) => {
                     // Selecting is fine, moving and resizing are not.
                     if (state.readOnly) return;
-                    if (e.target.classList.contains('resize-handle')) {
-                        initResize(e, index, elDiv, e.target.getAttribute('data-handle'));
-                    } else {
+                    // A second finger must not start a second drag of the same
+                    // layer half way through the first.
+                    if (!e.isPrimary) return;
+
+                    const select = () => {
                         state.selectedElementIndex = index;
                         canvasInner.querySelectorAll('.text-element, .image-element').forEach((el, idx) => {
                             el.classList.toggle('selected', idx === index);
                         });
                         syncFormWithSelected(element);
                         updateLayerListHighlight();
+                    };
+
+                    if (e.target.classList.contains('rotate-handle')) {
+                        select();
+                        initRotate(e, index, elDiv);
+                    } else if (e.target.classList.contains('resize-handle')) {
+                        initResize(e, index, elDiv, e.target.getAttribute('data-handle'));
+                    } else {
+                        select();
                         initDrag(e, index, elDiv);
                     }
                 });
 
                 canvasInner.appendChild(elDiv);
+
+                /*
+                 * Record the box the browser just laid out for this text.
+                 *
+                 * The renderer cannot measure a string — it has no font engine
+                 * with the browser's metrics — but it needs the box to know
+                 * where the centre of a rotation is and how big a border
+                 * rectangle should be. So the measurement travels with the
+                 * element and is refreshed every time the preview is drawn.
+                 */
+                if (element.type === 'text') {
+                    const contentBox = elDiv.querySelector('.text-element-content');
+                    if (contentBox) {
+                        element.boxWidth = Math.round(contentBox.offsetWidth);
+                        element.boxHeight = Math.round(contentBox.offsetHeight);
+                    }
+                }
             });
         }
 
@@ -1276,7 +1563,7 @@
             const maxContainerW = canvasInner.offsetWidth;
             const maxContainerH = canvasInner.offsetHeight;
 
-            function onMouseMove(moveEvt) {
+            function onPointerMove(moveEvt) {
                 const currentElemWidth = elDiv.offsetWidth || 0;
                 const currentElemHeight = elDiv.offsetHeight || 0;
 
@@ -1295,14 +1582,19 @@
                 element.y = Math.round(curY);
             }
 
-            function onMouseUp() {
-                document.removeEventListener('mousemove', onMouseMove);
-                document.removeEventListener('mouseup', onMouseUp);
+            function onPointerUp() {
+                document.removeEventListener('pointermove', onPointerMove);
+                document.removeEventListener('pointerup', onPointerUp);
+                document.removeEventListener('pointercancel', onPointerUp);
                 renderTextElementsList();
             }
 
-            document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('mouseup', onMouseUp);
+            // pointercancel is the one a touchscreen actually sends when the
+            // browser takes the gesture back; without it the move handler would
+            // stay attached and the layer would follow the finger for ever.
+            document.addEventListener('pointermove', onPointerMove);
+            document.addEventListener('pointerup', onPointerUp);
+            document.addEventListener('pointercancel', onPointerUp);
         }
 
         function initResize(e, index, elDiv, handleType) {
@@ -1319,12 +1611,25 @@
             const aspectRatio = startWidth / (startHeight || 1);
             const startFontSize = element.fontSize || 24;
 
+            const radians = (normalizeRotation(element.rotation) * Math.PI) / 180;
+            const cosAngle = Math.cos(radians);
+            const sinAngle = Math.sin(radians);
+
             const maxCanvasW = canvasInner.offsetWidth;
             const maxCanvasH = canvasInner.offsetHeight;
 
-            function onMouseMove(moveEvt) {
-                const deltaX = moveEvt.clientX - startX;
-                const deltaY = moveEvt.clientY - startY;
+            function onPointerMove(moveEvt) {
+                /*
+                 * The handle was dragged in screen space, but width and height
+                 * are measured along the element's own axes. Rotating the
+                 * screen delta back by the element's angle converts one into
+                 * the other, so grabbing the right edge of a layer tilted 30
+                 * degrees still widens it along that edge.
+                 */
+                const screenDX = moveEvt.clientX - startX;
+                const screenDY = moveEvt.clientY - startY;
+                const deltaX = screenDX * cosAngle + screenDY * sinAngle;
+                const deltaY = -screenDX * sinAngle + screenDY * cosAngle;
 
                 if (element.type === 'text') {
                     const textFactor = (handleType === 'tl' || handleType === 'bl') ? -0.4 : 0.4;
@@ -1391,15 +1696,66 @@
                 }
             }
 
-            function onMouseUp() {
-                document.removeEventListener('mousemove', onMouseMove);
-                document.removeEventListener('mouseup', onMouseUp);
+            function onPointerUp() {
+                document.removeEventListener('pointermove', onPointerMove);
+                document.removeEventListener('pointerup', onPointerUp);
+                document.removeEventListener('pointercancel', onPointerUp);
                 renderTextElements();
                 renderTextElementsList();
             }
 
-            document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('mouseup', onMouseUp);
+            document.addEventListener('pointermove', onPointerMove);
+            document.addEventListener('pointerup', onPointerUp);
+            document.addEventListener('pointercancel', onPointerUp);
+        }
+
+        /**
+         * Drag the grip above a layer to spin it.
+         *
+         * The angle is taken from the line between the box centre and the
+         * pointer, so the grip stays under the finger however far round it
+         * goes. getBoundingClientRect returns the axis-aligned box of an
+         * already-rotated element, but its centre is the rotation centre at
+         * any angle, which is the only part used here.
+         */
+        function initRotate(e, index, elDiv) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const element = state.textElements[index];
+            const box = elDiv.getBoundingClientRect();
+            const centreX = box.left + box.width / 2;
+            const centreY = box.top + box.height / 2;
+
+            const degreesFrom = (evt) =>
+                (Math.atan2(evt.clientY - centreY, evt.clientX - centreX) * 180) / Math.PI;
+
+            const startAngle = normalizeRotation(element.rotation);
+            const startPointer = degreesFrom(e);
+
+            function onPointerMove(moveEvt) {
+                let next = startAngle + (degreesFrom(moveEvt) - startPointer);
+
+                // Shift snaps to 15 degrees — the usual convention, and the
+                // only practical way to hit an exact 90 by hand.
+                if (moveEvt.shiftKey) next = Math.round(next / 15) * 15;
+
+                next = normalizeRotation(next);
+                element.rotation = next;
+                elDiv.style.transform = next ? `rotate(${next}deg)` : '';
+            }
+
+            function onPointerUp() {
+                document.removeEventListener('pointermove', onPointerMove);
+                document.removeEventListener('pointerup', onPointerUp);
+                document.removeEventListener('pointercancel', onPointerUp);
+                renderTextElements();
+                renderTextElementsList();
+            }
+
+            document.addEventListener('pointermove', onPointerMove);
+            document.addEventListener('pointerup', onPointerUp);
+            document.addEventListener('pointercancel', onPointerUp);
         }
 
         function syncFormWithSelected(element) {
@@ -1420,6 +1776,21 @@
                 fontWeightInput.value = element.fontWeight;
                 fontFamilyInput.value = element.fontFamily;
                 textColorInput.value = element.color;
+
+                // textBorderOf already resolves every default and maps the
+                // old single `padding` onto both axes, so the form is filled
+                // from it rather than repeating those rules here.
+                borderStyleInput.value = BORDER_STYLES.includes(element.borderStyle)
+                    ? element.borderStyle
+                    : 'none';
+
+                const box = textBorderOf(element);
+                borderWidthInput.value = box ? box.width : 1;
+                borderColorInput.value = box ? box.color : '#000000';
+                borderRadiusInput.value = box ? box.radius : 10;
+                textPaddingXInput.value = box ? box.paddingX : 8;
+                textPaddingYInput.value = box ? box.paddingY : 8;
+                updateBorderFieldsVisibility();
             }
 
             addTextBtn.style.display = 'none';
@@ -1522,6 +1893,7 @@
         window.deleteTextElement = function (e, index) {
             e.stopPropagation();
             state.textElements.splice(index, 1);
+            clearGeneratedUrl();
             resetForm();
             renderTextElementsList();
         };
@@ -1566,8 +1938,19 @@
             canvasInner.className = 'canvas-inner empty';
             canvasInner.innerHTML = 'Enter a background image URL to display workspace';
             renderTextElementsList();
-            codeOutput.style.display = 'none';
+            clearGeneratedUrl();
             showAlert('Workspace reset for new template', 'info');
+        }
+
+        /*
+         * The Render URL is derived from the template id, the background and
+         * the layers — it lists every {{placeholder}} the creative uses. So any
+         * edit to those can invalidate it, and a URL that no longer matches
+         * what is on screen is worse than no URL at all.
+         */
+        function clearGeneratedUrl() {
+            generatedUrl.textContent = '';
+            codeOutput.style.display = 'none';
         }
 
         function generateRenderUrl() {
@@ -1600,8 +1983,55 @@
         }
 
         // Event Bindings
-        bgUrlInput.addEventListener('blur', updateCanvasBackground);
+        let lastBackgroundValue = '';
+
+        bgUrlInput.addEventListener('blur', () => {
+            const value = bgUrlInput.value.trim();
+            const changed = value !== lastBackgroundValue;
+            lastBackgroundValue = value;
+
+            updateCanvasBackground();
+            // A different background can carry a different set of
+            // {{placeholders}}, so the URL below it stops being right.
+            if (changed) clearGeneratedUrl();
+        });
+
         elementTypeInput.addEventListener('change', updateFormForType);
+
+        /*
+         * The border fields edit the selected layer live rather than waiting
+         * for Update Element, the same way the Sizing dropdown already does —
+         * it is something you judge by eye against the background.
+         */
+        function applyBorderFromForm() {
+            const element = state.textElements[state.selectedElementIndex];
+            if (!element || element.type !== 'text') return;
+
+            element.borderStyle = borderStyleInput.value;
+            element.borderWidth = parseInt(borderWidthInput.value, 10) || 2;
+            element.borderColor = borderColorInput.value;
+            element.borderRadius = parseInt(borderRadiusInput.value, 10) || 0;
+            element.paddingX = parseInt(textPaddingXInput.value, 10) || 0;
+            element.paddingY = parseInt(textPaddingYInput.value, 10) || 0;
+
+            renderTextElements();
+            renderTextElementsList();
+        }
+
+        borderStyleInput.addEventListener('change', () => {
+            updateBorderFieldsVisibility();
+            applyBorderFromForm();
+        });
+
+        [
+            borderWidthInput,
+            borderColorInput,
+            borderRadiusInput,
+            textPaddingXInput,
+            textPaddingYInput,
+        ].forEach((input) => {
+            input.addEventListener('input', applyBorderFromForm);
+        });
 
         imageFitInput.addEventListener('change', () => {
             const element = state.textElements[state.selectedElementIndex];
@@ -1643,14 +2073,14 @@
         saveTemplateBtn.addEventListener('click', saveTemplate);
         newTemplateBtn.addEventListener('click', resetStudioForNewTemplate);
         generateCodeBtn.addEventListener('click', generateRenderUrl);
-        copyCodeBtn.addEventListener('click', () => {
-            navigator.clipboard.writeText(generatedUrl.textContent);
-            showAlert('Copied URL!', 'success');
-        });
+        // Copy URL is bound once, further up, where the inline "Copied!"
+        // feedback lives. A second listener here meant one press wrote to the
+        // clipboard twice and raised an alert over the button's own feedback.
 
         // Initial Load
         fetchNextTemplateId();
         updateFormForType();
+        updateBorderFieldsVisibility();
 
         // The library may render before /me resolves; redraw once the role is known
         document.addEventListener('shell:user', () => {

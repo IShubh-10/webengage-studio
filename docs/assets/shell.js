@@ -43,6 +43,7 @@
         clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.2V12l3.2 2"/>',
         shieldOff: '<path d="M12 3.2l7 2.6v5.4c0 4.2-2.8 7.4-7 9.6-4.2-2.2-7-5.4-7-9.6V5.8z"/><path d="M9 12.2l2 2 4-4.2"/>',
         chart: '<path d="M4 20V4"/><path d="M4 20h16"/><path d="M8.5 20v-6"/><path d="M13 20V9.5"/><path d="M17.5 20v-8.5"/>',
+        rotate: '<path d="M20 12a8 8 0 1 1-8-8c2.24 0 4.38.89 5.99 2.44L20 8.4"/><path d="M20 4v4.4h-4.4"/>',
     };
 
     // Exposed so pages can use the same icons in their own markup

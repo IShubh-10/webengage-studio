@@ -31,6 +31,127 @@ change itself, not afterwards.
 
 ### Added
 
+- **Layer rotation, for vertical and diagonal creatives.** Every text and image
+  layer now carries a `rotation` in degrees. There is deliberately no field for
+  it in the left panel: the only control is the round grip on a stalk above the
+  selected layer, carrying the shared `rotate` icon, which you drag to spin the
+  layer. Holding **Shift** while dragging snaps to 15 degrees, which is the
+  only practical way to hit an exact 90 by hand.
+
+  Because rotation never reaches the form, `buildElementFromForm` carries the
+  angle across from the layer being edited rather than reading it back out of
+  an input — otherwise pressing Update Element would silently straighten a
+  layer you had just turned.
+
+  Rotation is about the layer's own centre in both places — `transform-origin:
+  50% 50%` in the studio, and the matching centre in `composeTemplate`
+  (`src/services/render.js`) — so the preview and the rendered PNG agree at any
+  angle. Images are turned with `sharp.rotate()` onto a transparent background;
+  because sharp grows the canvas to fit the turned corners, the expanded frame
+  is placed so its centre lands where the upright box's centre was, and any
+  part hanging off the picture is cropped rather than nudged back inside.
+
+  Resizing a rotated layer now works along the layer's own edges: the drag
+  delta is rotated back by the layer's angle before it is applied, so grabbing
+  the right edge of a layer tilted 30 degrees still widens it along that edge.
+
+  Not yet available for the countdown clock inside a timer — see **Known
+  limits** below.
+
+- **Borders around text in dynamic images**, in `solid`, `dashed`, `dotted` and
+  `double`, with thickness, colour, corner radius, and independent horizontal
+  and vertical padding — a label usually wants more breathing room to the left
+  and right than above and below. Defaults are 1px thickness, 10px radius and
+  8px padding on both axes. The border is
+  drawn as an SVG rectangle behind the text in `composeTemplate` and as a CSS
+  border on the layer's content box in the studio. SVG centres a stroke on its
+  path where CSS draws a border inside the box, so each rectangle is inset by
+  half its own stroke — without that the two disagree by half a border width on
+  every side.
+
+- A `rotate` icon in the shared set in `docs/assets/shell.js`, reachable as
+  `window.shellIcon('rotate')` like the rest of them. Drawn in the house style
+  — stroked, `currentColor`, 1.7 stroke weight on a 24-unit viewBox — so it
+  inherits the grip's colour.
+
+### Fixed
+
+- **The Render URL panel no longer survives a template switch.** Opening
+  WEB-02, pressing Generate Render URL and then opening WEB-03 left WEB-02's
+  URL sitting on screen under WEB-03 — ready to be copied into a campaign
+  pointing at the wrong creative. `loadTemplateIntoStudio` now clears it, along
+  with the selected-layer index, which was equally stale: it pointed at a
+  position in the previous template's layer list.
+
+  The panel is also cleared whenever anything it is derived from changes — the
+  background URL, and adding, updating or deleting a layer — because the URL
+  lists the `{{placeholders}}` the creative uses, and those move when the
+  creative does.
+
+- **Dragging works on phones and tablets.** The canvas listened for `mousedown`
+  only, which no touchscreen sends, so no layer could be moved or resized on a
+  touch device. Drag, resize and the new rotate all run on pointer events now,
+  so one code path serves a mouse, a finger and a stylus. Three things were
+  needed beyond the rename: `touch-action: none` on the layers, or the browser
+  claims the gesture for scrolling before `pointermove` ever fires;
+  `pointercancel` alongside `pointerup`, because that is what a touchscreen
+  actually sends when it takes a gesture back; and ignoring non-primary
+  pointers, so a second finger cannot start a second drag of the same layer.
+
+  Handles keep their 8px look but gain an invisible 20px hit area under
+  `@media (pointer: coarse)` — an 8px target is not reachable with a fingertip.
+
+- **Copy URL wrote to the clipboard twice.** `copyCodeBtn` had two click
+  listeners bound; one press copied twice and raised an alert over the button's
+  own "Copied!" feedback. The duplicate is gone.
+
+### Changed
+
+- **Colour, font family and font weight are whitelisted before they reach the
+  SVG renderer** (`sanitizeColor`, `sanitizeFontFamily`, `sanitizeFontWeight`
+  in `src/services/render.js`). These values are interpolated into SVG
+  attributes that librsvg parses; they were previously passed through as
+  stored. Everything the studio's own form can produce passes unchanged.
+
+### Database
+
+- No migration. Layers live in the `templates.elements` JSON column, so the new
+  `rotation`, `borderStyle`, `borderWidth`, `borderColor`, `borderRadius`,
+  `paddingX`, `paddingY`, `boxWidth` and `boxHeight` fields needed no schema
+  change. A layer written during the brief window when padding was a single
+  `padding` field still reads correctly: both `normalizeElement` and the
+  renderer fall back to it for each axis, so such a layer keeps the exact box
+  it had.
+  `normalizeElement` in `src/repositories/templateRepository.js` clamps each of
+  them and supplies the defaults, so a layer saved before this change reads
+  back as `rotation: 0` and `borderStyle: 'none'` — and renders byte-identically
+  to before, which is checked against the previous renderer.
+
+
+### Architecture
+
+- **The studio measures text for the renderer.** A rotation needs the centre of
+  a text layer and a border needs its box, but the renderer has no font engine
+  with the browser's metrics — librsvg lays text out only as it draws it. So
+  the browser, which has just laid the text out in order to show it, records
+  the box as `boxWidth`/`boxHeight` (in preview pixels) and it travels with the
+  layer. The renderer falls back to a character-count estimate for a layer the
+  studio has never drawn, which only matters if that layer is rotated or
+  boxed — an upright, unboxed layer is drawn from its top-left corner and never
+  asks how wide it is.
+
+- **Known limits: the countdown clock cannot be rotated yet.** Layers inside a
+  template *do* rotate inside a timer creative, because a timer renders its
+  template through the same `composeTemplate`. The digits themselves cannot,
+  because the GIF engine is built on axis-aligned digit cells: `sprites.js`
+  pre-renders ten tiles per slot and `index.js` patches only the rectangles
+  that changed between seconds. Rotating the clock makes adjacent digits'
+  bounding boxes overlap, which breaks the independence those patches rely on.
+  Rotating it properly means reworking the sprite bundle and the frame diff,
+  and is a separate piece of work.
+
+### Added
+
 - **Open Stats — how many times each creative has actually been opened**, at
   `/stats`, with the window presets the question is usually asked in: today,
   last 7 days, last 30 days, this month, last month, this year, last year, and
