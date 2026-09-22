@@ -306,6 +306,23 @@
             cursor: grab;
             background-repeat: no-repeat;
             transition: background-color 0.15s ease;
+
+            /*
+             * The drag runs on pointer events, but that alone is not enough on
+             * a touchscreen: until the browser is told otherwise it treats a
+             * finger on this handle as a possible page scroll, and either
+             * pans the page under the drag or abandons it with pointercancel
+             * half way through. preventDefault() on pointerdown does not stop
+             * that — touch-action is the only thing that does, and it is why
+             * the clock would not move smoothly on a phone.
+             */
+            touch-action: none;
+
+            /* A long press would otherwise start a text selection or raise
+               iOS's callout menu over the drag. */
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
         }
 
         /* :not(.dragging) rather than relying on source order — the hover tint

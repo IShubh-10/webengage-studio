@@ -242,6 +242,29 @@
             transform-origin: 50% 50%;
         }
 
+        /*
+         * A text layer is one line, always.
+         *
+         * The renderer draws it as a single SVG <text>, which has no line
+         * breaking at all — so any wrap the preview shows is a layout the
+         * render can never produce. And the preview does wrap without this:
+         * an absolutely positioned box with `width: auto` shrink-to-fits
+         * against the space left between it and the right-hand edge of the
+         * canvas, so dragging a layer rightwards squeezes it until
+         * "Hello, {{name}}" folds onto two lines.
+         *
+         * It never showed before because the drag clamp stopped a layer at
+         * `canvas - its own width`, which left exactly enough room by
+         * construction. A turned layer is allowed past that point, so the
+         * squeeze became reachable.
+         *
+         * Keeping the line intact also keeps offsetWidth constant while the
+         * layer is dragged, which the drag bounds depend on.
+         */
+        .text-element {
+            white-space: nowrap;
+        }
+
         .text-element:hover,
         .image-element:hover {
             border-color: var(--primary);
@@ -261,6 +284,10 @@
 
         .resize-handle {
             position: absolute;
+            /* Inherited in effect from the layer, which is already
+               touch-action: none — stated here as well so a handle keeps
+               working if it is ever moved out of that subtree. */
+            touch-action: none;
             width: 8px;
             height: 8px;
             display: none;
@@ -1537,6 +1564,37 @@
             });
         }
 
+        /**
+         * How far a layer may travel, in the coordinates `left`/`top` are
+         * written in.
+         *
+         * Those coordinates place the layer's *unrotated* box, but what has to
+         * stay inside the canvas is the box you can see: the axis-aligned
+         * bounds of the turned layer. Rotation pivots on the centre and leaves
+         * it where it is, so the visible box is offset from the layout box by
+         * half the difference between the two.
+         *
+         * Clamping the layout box directly is what stopped a turned layer
+         * short of the edges — a 200x30 caption stood upright is 30 wide on
+         * screen, but was still held back by its 200px layout width and could
+         * never be pushed nearer than 170px to the right-hand edge.
+         */
+        function dragBounds(element, width, height, containerWidth, containerHeight) {
+            const radians = (normalizeRotation(element.rotation) * Math.PI) / 180;
+            const cos = Math.abs(Math.cos(radians));
+            const sin = Math.abs(Math.sin(radians));
+
+            const spanX = width * cos + height * sin;
+            const spanY = width * sin + height * cos;
+
+            return {
+                minX: (spanX - width) / 2,
+                maxX: containerWidth - (spanX + width) / 2,
+                minY: (spanY - height) / 2,
+                maxY: containerHeight - (spanY + height) / 2,
+            };
+        }
+
         function initDrag(e, index, elDiv) {
             e.preventDefault();
             const element = state.textElements[index];
@@ -1550,11 +1608,19 @@
                 const currentElemWidth = elDiv.offsetWidth || 0;
                 const currentElemHeight = elDiv.offsetHeight || 0;
 
-                const maxW = Math.max(0, maxContainerW - currentElemWidth);
-                const maxH = Math.max(0, maxContainerH - currentElemHeight);
+                const bounds = dragBounds(
+                    element,
+                    currentElemWidth,
+                    currentElemHeight,
+                    maxContainerW,
+                    maxContainerH
+                );
 
-                let curX = Math.max(0, Math.min(maxW, origX + (moveEvt.clientX - startX)));
-                let curY = Math.max(0, Math.min(maxH, origY + (moveEvt.clientY - startY)));
+                // min last, so a layer larger than the canvas still pins to the
+                // near edge rather than drifting off the far one — which is
+                // what the old `Math.max(0, ...)` did for an upright layer.
+                let curX = Math.max(bounds.minX, Math.min(bounds.maxX, origX + (moveEvt.clientX - startX)));
+                let curY = Math.max(bounds.minY, Math.min(bounds.maxY, origY + (moveEvt.clientY - startY)));
 
                 elDiv.style.left = curX + 'px';
                 elDiv.style.top = curY + 'px';
@@ -1597,6 +1663,7 @@
             const radians = (normalizeRotation(element.rotation) * Math.PI) / 180;
             const cosAngle = Math.cos(radians);
             const sinAngle = Math.sin(radians);
+            const isUpright = radians === 0;
 
             const maxCanvasW = canvasInner.offsetWidth;
             const maxCanvasH = canvasInner.offsetHeight;
@@ -1648,16 +1715,26 @@
                     let newLeft = movesLeftEdge ? startLeft + (startWidth - newWidth) : startLeft;
                     let newTop = movesTopEdge ? startTop + (startHeight - newHeight) : startTop;
 
-                    if (newLeft < 0) {
-                        newWidth += newLeft;
-                        newLeft = 0;
+                    /*
+                     * Containment only means something while the layer is
+                     * upright. Once it is turned, newLeft and newWidth describe
+                     * the layout box rather than the box on screen, so clamping
+                     * them fights the drag instead of bounding it. A turned
+                     * layer is left free to overhang — the canvas clips it, and
+                     * so does the renderer.
+                     */
+                    if (isUpright) {
+                        if (newLeft < 0) {
+                            newWidth += newLeft;
+                            newLeft = 0;
+                        }
+                        if (newTop < 0) {
+                            newHeight += newTop;
+                            newTop = 0;
+                        }
+                        if (newLeft + newWidth > maxCanvasW) newWidth = maxCanvasW - newLeft;
+                        if (newTop + newHeight > maxCanvasH) newHeight = maxCanvasH - newTop;
                     }
-                    if (newTop < 0) {
-                        newHeight += newTop;
-                        newTop = 0;
-                    }
-                    if (newLeft + newWidth > maxCanvasW) newWidth = maxCanvasW - newLeft;
-                    if (newTop + newHeight > maxCanvasH) newHeight = maxCanvasH - newTop;
 
                     newWidth = Math.max(MIN_ELEMENT_SIZE, newWidth);
                     newHeight = Math.max(MIN_ELEMENT_SIZE, newHeight);

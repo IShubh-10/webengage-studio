@@ -468,28 +468,35 @@ async function composeTemplate(templateData, vars = {}) {
           // box); 'cover' fills the box and crops the overflow; 'fill'
           // stretches.
           const fitMode = FIT_MODES[element.fit] || sharp.fit.inside;
+          const rotation = normalizeRotation(element.rotation);
 
           let targetWidth = parseDimension(element.width, origWidth, scaleX);
           let targetHeight = parseDimension(element.height, origHeight, scaleY);
 
-          // A shortfall smaller than a single canvas pixel is the studio's
-          // rounding, never intent: snap it to the background edge so a layer
-          // dragged to the edge covers it instead of leaving a hairline strip.
-          // Oversize boxes are clamped because sharp refuses to composite an
-          // input larger than the base image.
-          if (targetWidth) {
+          /*
+           * A shortfall smaller than a single canvas pixel is the studio's
+           * rounding, never intent: snap it to the background edge so a layer
+           * dragged to the edge covers it instead of leaving a hairline strip.
+           *
+           * Upright layers only. Once a layer is turned, the distance from its
+           * `left` to the canvas edge says nothing about how much room it
+           * needs — the turned box is a different width, and it is meant to be
+           * able to hang over the edge. Resizing it to fit would shrink a
+           * diagonal caption the moment it approached a corner. The overhang
+           * is cropped further down instead, which is also what keeps sharp
+           * from being handed an input bigger than the base image.
+           */
+          if (!rotation && targetWidth) {
             const maxWidth = Math.max(1, origWidth - Math.max(0, left));
             if (targetWidth >= maxWidth - Math.ceil(scaleX)) targetWidth = maxWidth;
             targetWidth = Math.min(targetWidth, maxWidth);
           }
 
-          if (targetHeight) {
+          if (!rotation && targetHeight) {
             const maxHeight = Math.max(1, origHeight - Math.max(0, top));
             if (targetHeight >= maxHeight - Math.ceil(scaleY)) targetHeight = maxHeight;
             targetHeight = Math.min(targetHeight, maxHeight);
           }
-
-          const rotation = normalizeRotation(element.rotation);
 
           // Key on the resolved pixel size, not the element's own values: the
           // same box over a differently sized background resolves differently.
@@ -605,8 +612,15 @@ async function composeTemplate(templateData, vars = {}) {
         const rotation = normalizeRotation(element.rotation);
         const border = textBorderOf(element);
 
-        const boxLeft = Math.max(0, left);
-        const boxTop = Math.max(0, top);
+        /*
+         * Deliberately not clamped to the canvas. A turned layer legitimately
+         * sits partly outside it — running a caption off the edge of a
+         * vertical creative is the point — and SVG clips at the viewport just
+         * as the studio's canvas does. Clamping here would drag such a layer
+         * back inside and disagree with the preview.
+         */
+        const boxLeft = left;
+        const boxTop = top;
 
         /*
          * Only a boxed or turned layer needs to know its own size, and working

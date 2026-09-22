@@ -104,6 +104,53 @@ change itself, not afterwards.
   Handles keep their 8px look but gain an invisible 20px hit area under
   `@media (pointer: coarse)` — an 8px target is not reachable with a fingertip.
 
+- **A rotated layer could not be dragged to the edges of the canvas.** The
+  drag clamp measured the layer's *unrotated* box, but what has to stay inside
+  the canvas is the box you can see. A 200x30 caption stood upright is 30px
+  wide on screen while still being held back by its 200px layout width, so it
+  stopped 170px short of the right-hand edge — the taller the turn, the wider
+  the dead margin.
+
+  `dragBounds` now clamps the axis-aligned bounds of the turned layer. Since
+  rotation pivots on the centre and leaves it in place, the visible box is
+  offset from the layout box by half the difference between the two, which
+  makes the allowed range `(span - size) / 2` to `container - (span + size) / 2`
+  on each axis. At zero degrees that collapses to the old `0` to
+  `container - size`, so an upright layer behaves exactly as it did.
+
+  A turned layer may now legitimately sit at a negative `x` or `y`, so two
+  clamps in the renderer had to go with it: text is no longer pulled back to
+  the canvas origin, and an image layer is no longer resized to fit the
+  distance from its `left` to the edge — that distance says nothing useful once
+  the layer is turned, and shrinking it would have made a diagonal caption
+  contract as it approached a corner. Both simply overhang now, and the canvas
+  and the renderer clip them identically. Resizing a turned layer is likewise
+  no longer clamped to the canvas, for the same reason.
+
+- **Text in the studio wrapped onto two lines as a layer was dragged right.**
+  An absolutely positioned box with `width: auto` shrink-to-fits against the
+  space between it and the right-hand edge of its container, so pushing a
+  layer rightwards squeezed it until `Hello, {{name}}` folded in two. The
+  renderer draws a text layer as a single SVG `<text>`, which has no line
+  breaking at all — so the preview was showing a layout the render could never
+  produce. `.text-element` is now `white-space: nowrap`, which matches the
+  renderer and also keeps `offsetWidth` constant while a layer is dragged,
+  which the drag bounds rely on.
+
+  Latent until now: the old clamp stopped a layer at `canvas - its own width`,
+  which left exactly enough room by construction. Letting a turned layer past
+  that point made the squeeze reachable.
+
+- **The timer builder's clock would not drag smoothly on a phone.** The drag
+  already ran on pointer events with pointer capture, but `.block-handle` had
+  no `touch-action`, so a browser still treated a finger on it as a possible
+  page scroll — panning the page under the drag, or abandoning it with
+  `pointercancel` part way through. `preventDefault()` on `pointerdown` does
+  not prevent that; `touch-action: none` is the only thing that does. A long
+  press could also start a selection or raise iOS's callout menu over the
+  drag, so the handle now suppresses those too, and a second finger landing
+  mid-drag is ignored rather than restarting it from the new contact point.
+
 - **Copy URL wrote to the clipboard twice.** `copyCodeBtn` had two click
   listeners bound; one press copied twice and raised an alert over the button's
   own "Copied!" feedback. The duplicate is gone.

@@ -423,6 +423,9 @@
 
         handle.addEventListener('pointerdown', (event) => {
             if (!state.block || !state.naturalWidth) return;
+            // A second finger landing mid-drag must not restart it from the
+            // new contact point, which would make the clock jump.
+            if (!event.isPrimary) return;
             event.preventDefault();
             handle.setPointerCapture(event.pointerId);
             handle.classList.add('dragging', 'grabbing');
