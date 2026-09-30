@@ -45,7 +45,10 @@ const ROOT_DIR = path.join(__dirname, '..', '..');
         }
       });
 
-    if (loaded > 0) console.log(`🔑 Loaded ${loaded} value(s) from .env`);
+    // Registered rather than printed: it belongs in the boot summary's
+    // "started by this process" half, and that is printed once the worker is
+    // actually up rather than here, several seconds earlier.
+    if (loaded > 0) require('../lib/bootReport').startedHere(`loaded ${loaded} value(s) from .env`);
   } catch (err) {
     console.warn('⚠️ Could not read .env:', err.message);
   }

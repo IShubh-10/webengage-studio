@@ -523,6 +523,12 @@
             width: auto;
         }
 
+        /* The blanket rule above fills a column; the shared primitives from
+           theme.css are sized by their own content. */
+        .folder-bar .btn {
+            width: auto;
+        }
+
         .templates-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
@@ -904,14 +910,14 @@
                 <div class="library-header">
                     <div>
                         <h2>Templates Library</h2>
-                        <p style="color: var(--text-muted); font-size: 13px;">Manage and load your saved dynamic image
-                            templates.</p>
+                        <p style="color: var(--text-muted); font-size: 13px;" id="libraryLead">Manage and load the
+                            dynamic image templates you have saved.</p>
                     </div>
                     <button class="primary" style="width: auto;"
                         onclick="switchTab('studio'); resetStudioForNewTemplate();">+ Create New Template</button>
                 </div>
 
-                <div class="templates-grid" id="templatesGrid">
+                <div class="library-body" id="templatesGrid">
                     <p style="color: var(--text-muted);">Loading templates...</p>
                 </div>
             </div>
@@ -1073,22 +1079,14 @@
             );
         }
 
-        async function fetchSavedTemplates() {
-            try {
-                const res = await apiFetch('/api/v1/templates');
-                const data = await res.json();
+        function escapeHtml(value) {
+            return String(value === null || value === undefined ? '' : value)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
 
-                if (!data.templates || data.templates.length === 0) {
-                    templatesGrid.innerHTML = '<p style="color: var(--text-muted);">No saved templates found.</p>';
-                    return;
-                }
-
-                // Sort templates sequentially (WEB-01, WEB-02, WEB-03...)
-                const sortedTemplates = [...data.templates].sort((a, b) => {
-                    return a.template_id.localeCompare(b.template_id, undefined, { numeric: true, sensitivity: 'base' });
-                });
-
-                templatesGrid.innerHTML = sortedTemplates.map(t => `
+        function templateCard(t) {
+            return `
       <div class="template-card">
         <div class="template-card-preview">
           <img src="${apiUrl(`/api/v1/render/${t.template_id}?we_preview=1&v=${previewVersion(t)}`)}" alt="${t.template_id}" onerror="this.src='${t.background_url}'" />
@@ -1096,7 +1094,7 @@
         <div class="template-card-body">
           <div class="template-card-title">${t.template_id}</div>
           <div class="template-card-meta">Layers: ${t.textElements ? t.textElements.length : 0}</div>
-          <div class="template-card-meta">by ${t.created_by_name || 'someone who has since left'}${t.canEdit ? '' : ' &middot; view only'}</div>
+          <div class="template-card-meta">by ${escapeHtml(t.created_by_name || 'someone who has since left')}${t.canEdit ? '' : ' &middot; view only'}</div>
           <div class="template-card-actions">
             <button onclick="loadTemplateIntoStudio('${t.template_id}')">${t.canEdit ? 'Edit' : 'Open to view'}</button>
             <button class="secondary" onclick="copyRenderUrlFor('${t.template_id}', this)">Copy</button>
@@ -1105,7 +1103,139 @@
           </div>
         </div>
       </div>
-    `).join('');
+    `;
+        }
+
+        /*
+         * An admin's library, as a folder per person.
+         *
+         * The server sends an admin every template in the studio and a member
+         * only their own, so the grouping is worth drawing exactly when there
+         * is more than one person's work on screen. It behaves like a folder
+         * rather than an accordion: the library shows the folders, opening one
+         * shows what is inside it, and a crumb bar takes you back out. The
+         * signed-in admin's own folder comes first — it is the one they are
+         * most likely to be after — then everyone else alphabetically, with
+         * the templates that predate ownership last, since nobody can claim
+         * them.
+         */
+        const library = { admin: false, templates: [], folder: null };
+
+        function ownerFolders(templates) {
+            const mine = window.shellUser ? Number(window.shellUser.id) : null;
+            const folders = new Map();
+
+            templates.forEach((t) => {
+                const owned = t.created_by !== null && t.created_by !== undefined;
+                const key = owned ? String(t.created_by) : 'none';
+
+                if (!folders.has(key)) {
+                    folders.set(key, {
+                        key,
+                        name: owned
+                            ? (t.created_by_name || 'Someone who has since left')
+                            : 'Unassigned',
+                        isMine: owned && mine !== null && Number(t.created_by) === mine,
+                        templates: [],
+                    });
+                }
+
+                folders.get(key).templates.push(t);
+            });
+
+            return Array.from(folders.values()).sort((a, b) => {
+                if (a.isMine !== b.isMine) return a.isMine ? -1 : 1;
+                if ((a.key === 'none') !== (b.key === 'none')) return a.key === 'none' ? 1 : -1;
+                return a.name.localeCompare(b.name);
+            });
+        }
+
+        function folderCount(folder) {
+            const count = folder.templates.length;
+            return `${count} template${count === 1 ? '' : 's'}`;
+        }
+
+        function folderCardHtml(folder) {
+            return `
+      <button class="folder-card" type="button" data-folder="${escapeHtml(folder.key)}">
+        <span class="folder-card-head">
+          <span class="folder-card-name">${escapeHtml(folder.name)}</span>
+          ${folder.isMine ? '<span class="folder-card-you">you</span>' : ''}
+        </span>
+        <span class="folder-card-count">${folderCount(folder)}</span>
+      </button>`;
+        }
+
+        function openFolder(key) {
+            library.folder = key;
+            renderLibrary();
+            document.querySelector('.library-layout').scrollTop = 0;
+        }
+
+        function renderLibrary() {
+            const lead = document.getElementById('libraryLead');
+            if (lead) {
+                lead.textContent = library.admin
+                    ? 'Every template in the studio, in a folder for whoever created it.'
+                    : 'Manage and load the dynamic image templates you have saved.';
+            }
+
+            if (!library.templates.length) {
+                templatesGrid.innerHTML = `<p style="color: var(--text-muted);">${library.admin
+                    ? 'Nobody has saved a template yet.'
+                    : 'You have not saved a template yet. Create one to see it here.'}</p>`;
+                return;
+            }
+
+            // Sorted sequentially (WEB-01, WEB-02, WEB-03...) inside whichever
+            // view they end up in.
+            const sorted = [...library.templates].sort((a, b) =>
+                a.template_id.localeCompare(b.template_id, undefined, { numeric: true, sensitivity: 'base' })
+            );
+
+            if (!library.admin) {
+                templatesGrid.innerHTML = `<div class="templates-grid">${sorted.map(templateCard).join('')}</div>`;
+                return;
+            }
+
+            const folders = ownerFolders(sorted);
+            const open = folders.find((folder) => folder.key === library.folder);
+
+            // The folder that was open can disappear underneath you — its last
+            // template deleted, or somebody else's work reloaded. Falling back
+            // to the folder list beats rendering an empty room.
+            if (library.folder !== null && !open) library.folder = null;
+
+            if (library.folder === null) {
+                templatesGrid.innerHTML = `<div class="folder-grid">${folders.map(folderCardHtml).join('')}</div>`;
+
+                templatesGrid.querySelectorAll('[data-folder]').forEach((card) => {
+                    card.addEventListener('click', () => openFolder(card.dataset.folder));
+                });
+                return;
+            }
+
+            templatesGrid.innerHTML = `
+      <div class="folder-bar">
+        <button class="btn small" type="button" id="backToFolders">All folders</button>
+        <span class="folder-crumb">${shellIcon('folder')}${escapeHtml(open.name)}
+          <span class="muted">· ${folderCount(open)}</span></span>
+      </div>
+      <div class="templates-grid">${open.templates.map(templateCard).join('')}</div>`;
+
+            document.getElementById('backToFolders').addEventListener('click', () => openFolder(null));
+        }
+
+        async function fetchSavedTemplates() {
+            try {
+                const res = await apiFetch('/api/v1/templates');
+                const data = await res.json();
+
+                library.admin = Boolean(data.viewerIsAdmin);
+                library.templates = data.templates || [];
+                if (!library.admin) library.folder = null;
+
+                renderLibrary();
             } catch (err) {
                 templatesGrid.innerHTML = '<p style="color: #ef4444;">Failed to load saved templates.</p>';
             }

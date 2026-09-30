@@ -38,6 +38,63 @@ function localBucket(offsetMinutes) {
 }
 
 /**
+ * Restricts a query to a named set of creatives — the ones the reader is
+ * allowed to see.
+ *
+ * `asset_opens` has no owner column, and deliberately so: it is written on the
+ * public render path, millions of rows an hour, and a join there would make
+ * every open cost a lookup. Ownership therefore arrives from the other side —
+ * the caller resolves whose creatives these are from the library tables and
+ * passes the list in. A studio holds dozens of creatives, not thousands, so
+ * the resulting IN list stays small.
+ *
+ * `null` means no restriction at all. An empty list means the reader owns
+ * nothing, which has to read as "no rows" rather than as "everything"; it
+ * cannot be written as `IN ()`, which MySQL rejects, so it becomes a predicate
+ * that is simply never true.
+ */
+function assetScope(assets) {
+  if (!assets) return null;
+  if (!assets.length) return { sql: '1 = 0', params: [] };
+
+  const params = [];
+  assets.forEach((asset) => {
+    params.push(asset.assetType, asset.assetId);
+  });
+
+  return {
+    sql: `(asset_type, asset_id) IN (${assets.map(() => '(?, ?)').join(', ')})`,
+    params,
+  };
+}
+
+/**
+ * The filters every windowed query shares: the window itself, an optional
+ * single creative, and the ownership scope above.
+ */
+function windowFilters({ from, to, assetType = null, assetId = null, assets = null }) {
+  const filters = ['bucket_hour >= ?', 'bucket_hour < ?'];
+  const params = [from, to];
+
+  if (assetType) {
+    filters.push('asset_type = ?');
+    params.push(assetType);
+  }
+  if (assetId) {
+    filters.push('asset_id = ?');
+    params.push(assetId);
+  }
+
+  const scope = assetScope(assets);
+  if (scope) {
+    filters.push(scope.sql);
+    params.push(...scope.params);
+  }
+
+  return { sql: filters.join(' AND '), params };
+}
+
+/**
  * Add a batch of counted opens to the hourly buckets.
  *
  * One statement for the whole batch: this runs on a timer behind the render
@@ -68,7 +125,9 @@ async function recordOpenBuckets(buckets) {
 }
 
 /** Opens per creative for one window, busiest first. */
-async function totalsByAsset({ from, to }) {
+async function totalsByAsset({ from, to, assets = null }) {
+  const where = windowFilters({ from, to, assets });
+
   const [rows] = await db.query(
     `SELECT asset_type,
             asset_id,
@@ -76,10 +135,10 @@ async function totalsByAsset({ from, to }) {
             DATE_FORMAT(MAX(last_open_at), '%Y-%m-%d %H:%i:%s') AS last_open_at,
             DATE_FORMAT(MIN(bucket_hour), '%Y-%m-%d %H:%i:%s') AS first_bucket
        FROM asset_opens
-      WHERE bucket_hour >= ? AND bucket_hour < ?
+      WHERE ${where.sql}
       GROUP BY asset_type, asset_id
       ORDER BY opens DESC`,
-    [from, to]
+    where.params
   );
 
   return rows.map((row) => ({
@@ -97,22 +156,12 @@ async function totalsByAsset({ from, to }) {
  * Used for the headline figure and, run a second time over the window before
  * it, for the change against the previous period.
  */
-async function totalOpens({ from, to, assetType = null, assetId = null }) {
-  const filters = ['bucket_hour >= ?', 'bucket_hour < ?'];
-  const params = [from, to];
-
-  if (assetType) {
-    filters.push('asset_type = ?');
-    params.push(assetType);
-  }
-  if (assetId) {
-    filters.push('asset_id = ?');
-    params.push(assetId);
-  }
+async function totalOpens({ from, to, assetType = null, assetId = null, assets = null }) {
+  const where = windowFilters({ from, to, assetType, assetId, assets });
 
   const [rows] = await db.query(
-    `SELECT COALESCE(SUM(opens), 0) AS opens FROM asset_opens WHERE ${filters.join(' AND ')}`,
-    params
+    `SELECT COALESCE(SUM(opens), 0) AS opens FROM asset_opens WHERE ${where.sql}`,
+    where.params
   );
 
   // An aggregate with no GROUP BY always answers with one row, but a missing
@@ -129,29 +178,26 @@ async function totalOpens({ from, to, assetType = null, assetId = null }) {
  * filled in by the caller, which knows the window's boundaries and does not
  * need the database to send a row of zero for every empty hour of a year.
  */
-async function openSeries({ from, to, unit, offsetMinutes, assetType = null, assetId = null }) {
+async function openSeries({
+  from,
+  to,
+  unit,
+  offsetMinutes,
+  assetType = null,
+  assetId = null,
+  assets = null,
+}) {
   const format = GROUP_FORMATS[unit] || GROUP_FORMATS.day;
-
-  const filters = ['bucket_hour >= ?', 'bucket_hour < ?'];
-  const params = [from, to];
-
-  if (assetType) {
-    filters.push('asset_type = ?');
-    params.push(assetType);
-  }
-  if (assetId) {
-    filters.push('asset_id = ?');
-    params.push(assetId);
-  }
+  const where = windowFilters({ from, to, assetType, assetId, assets });
 
   const [rows] = await db.query(
     `SELECT DATE_FORMAT(${localBucket(offsetMinutes)}, '${format}') AS bucket,
             SUM(opens) AS opens
        FROM asset_opens
-      WHERE ${filters.join(' AND ')}
+      WHERE ${where.sql}
       GROUP BY bucket
       ORDER BY bucket ASC`,
-    params
+    where.params
   );
 
   return rows.map((row) => ({ bucket: row.bucket, opens: Number(row.opens) || 0 }));
@@ -163,26 +209,23 @@ async function openSeries({ from, to, unit, offsetMinutes, assetType = null, ass
  * The answer a campaign actually acts on — a send time — and the one thing the
  * plain series cannot show once the window is longer than a couple of days.
  */
-async function openByHourOfDay({ from, to, offsetMinutes, assetType = null, assetId = null }) {
-  const filters = ['bucket_hour >= ?', 'bucket_hour < ?'];
-  const params = [from, to];
-
-  if (assetType) {
-    filters.push('asset_type = ?');
-    params.push(assetType);
-  }
-  if (assetId) {
-    filters.push('asset_id = ?');
-    params.push(assetId);
-  }
+async function openByHourOfDay({
+  from,
+  to,
+  offsetMinutes,
+  assetType = null,
+  assetId = null,
+  assets = null,
+}) {
+  const where = windowFilters({ from, to, assetType, assetId, assets });
 
   const [rows] = await db.query(
     `SELECT HOUR(${localBucket(offsetMinutes)}) AS hour_of_day, SUM(opens) AS opens
        FROM asset_opens
-      WHERE ${filters.join(' AND ')}
+      WHERE ${where.sql}
       GROUP BY hour_of_day
       ORDER BY hour_of_day ASC`,
-    params
+    where.params
   );
 
   const hours = new Array(24).fill(0);

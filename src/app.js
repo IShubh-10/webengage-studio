@@ -8,23 +8,24 @@ const bodyParser = require('body-parser');
 
 const { attachUserFromSession } = require('./middleware/session');
 const { requireTrustedOrigin } = require('./middleware/origin');
-const { CORS_ORIGINS, PUBLIC_DIR } = require('./config');
+const { CORS_ORIGINS, PUBLIC_DIR, TRUST_PROXY } = require('./config');
 
 const app = express();
 
 /*
- * Every request reaches this process through Render's edge, so the socket
- * address is that proxy for all of them — identical for the whole internet.
- * Without this, `req.ip` is useless and anything keyed on it (rate limiting,
- * abuse logs) would put every caller in the same bucket, which for a limiter
- * means the first flood locks everybody out.
+ * Every request reaches this process through a proxy — a CDN edge, or the nginx
+ * in front of it on the same EC2 instance — so the socket address is that proxy
+ * for all of them, identical for the whole internet. Without this, `req.ip` is
+ * useless and anything keyed on it (rate limiting, abuse logs) would put every
+ * caller in the same bucket, which for a limiter means the first flood locks
+ * everybody out.
  *
  * `X-Forwarded-For` is client-supplied up to the first proxy that rewrites it,
- * so `req.ip` alone is a hint rather than an identity. `clientIp()` in
- * middleware/rateLimit.js prefers `CF-Connecting-IP`, which the edge sets fresh
- * on every request and a caller therefore cannot forge.
+ * so how far express is told to trust decides whether `req.ip` is an identity
+ * or a suggestion. TRUST_PROXY in config/index.js carries that number and the
+ * reasoning; behind a single nginx it should be 1, not `true`.
  */
-app.set('trust proxy', true);
+app.set('trust proxy', TRUST_PROXY);
 
 app.use(
   cors({

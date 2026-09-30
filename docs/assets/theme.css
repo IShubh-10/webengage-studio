@@ -272,6 +272,133 @@ label,
     height: 14px;
 }
 
+/* Folder browser -------------------------------------------------------------
+
+   Wherever an admin sees the whole studio, the work is grouped by the person
+   who made it. These are folders you open, not sections you expand: the tab is
+   drawn in CSS, and opening one replaces the grid with that folder's contents
+   instead of pushing everything below it down the page.
+*/
+
+.folder-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(216px, 1fr));
+    gap: 18px 16px;
+    /* The tabs stand above the cards, so the first row needs room for them */
+    padding-top: 11px;
+}
+
+.folder-card {
+    position: relative;
+    display: block;
+    width: 100%;
+    padding: 18px 16px 16px;
+    background: var(--panel-bg);
+    border: 1px solid var(--border-color);
+    /* Square where the tab joins, rounded everywhere else */
+    border-radius: 3px var(--radius) var(--radius) var(--radius);
+    box-shadow: var(--shadow-card);
+    font-family: inherit;
+    /* Spelled out because a page may style bare `button` for its own controls —
+       the studio does — and a folder must not inherit a filled button's white
+       text or its colour. */
+    font-weight: 400;
+    color: var(--text-main);
+    text-align: left;
+    cursor: pointer;
+    transition: transform 0.18s var(--ease), box-shadow 0.18s var(--ease),
+        border-color 0.18s var(--ease);
+}
+
+/* The tab. It overlaps the card's own top border for its width — painted over
+   it, because a positioned pseudo-element draws after its parent's border — so
+   the two read as one piece of folded card rather than as a box with a smaller
+   box balanced on top of it. */
+.folder-card::before {
+    content: '';
+    position: absolute;
+    top: -11px;
+    left: -1px;
+    width: 84px;
+    height: 14px;
+    background: var(--panel-bg);
+    border: 1px solid var(--border-color);
+    border-bottom: none;
+    border-radius: var(--radius-sm) 10px 0 0;
+    transition: border-color 0.18s var(--ease);
+}
+
+/* Qualified by the grid so the hover beats a page's own `button:hover`, which
+   would otherwise fill the folder with the studio's button colour. */
+.folder-grid .folder-card:hover {
+    transform: translateY(-2px);
+    background: var(--panel-bg);
+    border-color: var(--primary);
+    box-shadow: var(--shadow-raised);
+}
+
+.folder-grid .folder-card:hover::before {
+    border-color: var(--primary);
+}
+
+.folder-card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.folder-card-name {
+    overflow: hidden;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-main);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.folder-card-you {
+    flex: 0 0 auto;
+    padding: 2px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-pill);
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.folder-card-count {
+    display: block;
+    margin-top: 5px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* Where you are, once a folder is open */
+.folder-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.folder-crumb {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.folder-crumb .icon {
+    color: var(--primary);
+}
+
+.folder-crumb .muted {
+    font-weight: 400;
+    color: var(--text-muted);
+}
+
 /* Toast ---------------------------------------------------------------------
    The app's one transient message: bottom right, out of the way of the work.
    Was written inline in timers.html; it lives here so every page gets the same

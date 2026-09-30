@@ -58,8 +58,8 @@ async function requireAdminPage(req, res, next) {
  * Is this user allowed to change something someone else may have made?
  *
  * The rule the studio uses everywhere: the person who created it, or an admin.
- * Everyone else can look at it — nothing here restricts reading, because a
- * shared library is the point.
+ * It governs reading now as well as writing — a member's library, and their
+ * stats, are their own work, and an admin's is the studio's.
  *
  * The role is read from the database rather than taken from the session, for
  * the same reason `resolveAdmin` does it: a cookie issued before someone was

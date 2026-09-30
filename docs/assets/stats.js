@@ -25,11 +25,24 @@
     // The presets, and the only values `?range=` will accept.
     var PRESETS = ['today', 'last7', 'last30', 'thisMonth', 'lastMonth', 'thisYear', 'lastYear', 'custom'];
 
+    // The window the page opens on. A week is the span a send is judged over —
+    // long enough to have a shape, short enough that yesterday still shows.
+    var DEFAULT_RANGE = 'last7';
+
     var state = {
-        range: 'last30',
+        range: DEFAULT_RANGE,
         custom: { from: null, to: null },
         view: 'overview',
         asset: null,          // { type, id } when a single creative is open
+        /*
+         * Whose numbers are on screen. Only an admin can move it: 'all' is the
+         * whole studio, a user id is one person, 'none' the creatives written
+         * before ownership was recorded. For everyone else the server pins the
+         * answer to their own work and ignores whatever this says.
+         */
+        scope: 'all',
+        usersPainted: false,
+        shareMode: 'creative', // which way the share donut is cut
         overview: null,       // the last payload, kept so a resize can redraw
         detail: null,
     };
@@ -70,10 +83,12 @@
                 return { from: new Date(year, 0, 1), to: now, unit: 'month' };
             case 'lastYear':
                 return { from: new Date(year - 1, 0, 1), to: new Date(year, 0, 1), unit: 'month' };
+            case 'last30':
+                return { from: new Date(today.getTime() - 29 * 86400000), to: now, unit: 'day' };
             case 'custom':
                 return customWindow();
             default:
-                return { from: new Date(today.getTime() - 29 * 86400000), to: now, unit: 'day' };
+                return { from: new Date(today.getTime() - 6 * 86400000), to: now, unit: 'day' };
         }
     }
 
@@ -86,7 +101,7 @@
         var from = parseDateInput($('fromDate').value);
         var to = parseDateInput($('toDate').value);
 
-        if (!from || !to) return windowFor('last30');
+        if (!from || !to) return windowFor(DEFAULT_RANGE);
         if (to < from) {
             var swap = from;
             from = to;
@@ -117,7 +132,10 @@
             '&unit=' + window_.unit +
             // Minutes east of UTC, the way a person would say it: +330 for IST.
             // Date#getTimezoneOffset reports the opposite sign.
-            '&tzOffset=' + -new Date().getTimezoneOffset()
+            '&tzOffset=' + -new Date().getTimezoneOffset() +
+            // Only an admin's choice means anything here; the server decides
+            // whether this request is allowed to act on it.
+            (state.scope && state.scope !== 'all' ? '&user=' + encodeURIComponent(state.scope) : '')
         );
     }
 
@@ -348,20 +366,223 @@
         });
     }
 
-    function numbersTable(series, unit, container) {
-        if (!series.length) {
-            container.innerHTML = '<div class="state-note">Nothing to show.</div>';
+    /* ------------------------------------------------------------ the donut
+
+       Part-to-whole, which is the one job a pie does better than a bar: how
+       the window's opens divide up, between creatives, between people, or
+       across the days of the window itself.
+
+       Two rules keep it readable. Hues are assigned in a fixed order and never
+       cycled, so a sixth category folds into a neutral "Other" rather than
+       inventing a colour. And the legend beside it carries the name, the count
+       and the percentage as text — it is the table the picture cannot be, and
+       it means nothing here depends on telling two colours apart.
+    */
+
+    var SLICE_COLORS = [
+        'var(--series-1)',
+        'var(--series-2)',
+        'var(--series-3)',
+        'var(--series-4)',
+        'var(--series-5)',
+    ];
+    var OTHER_COLOR = 'var(--series-other)';
+
+    // Five named slices at most. A sixth positive value would make "Other" a
+    // single thing with its own name hidden behind a label, so the fold only
+    // happens once there are at least two to fold.
+    var MAX_SLICES = 5;
+
+    function foldSlices(items, otherNoun) {
+        var positive = items
+            .filter(function (item) { return item.value > 0; })
+            .sort(function (a, b) { return b.value - a.value; });
+
+        function coloured(item, index) {
+            var slice = Object.assign({}, item);
+            slice.color = SLICE_COLORS[index];
+            return slice;
+        }
+
+        if (positive.length <= MAX_SLICES) return positive.map(coloured);
+
+        var head = positive.slice(0, MAX_SLICES).map(coloured);
+        var tail = positive.slice(MAX_SLICES);
+
+        head.push({
+            key: '__other__',
+            label: 'Other',
+            sub: tail.length + ' ' + (otherNoun || 'more'),
+            value: tail.reduce(function (sum, item) { return sum + item.value; }, 0),
+            color: OTHER_COLOR,
+        });
+
+        return head;
+    }
+
+    /** A point on a circle, clockwise from twelve o'clock. */
+    function polar(cx, cy, radius, angle) {
+        return (cx + radius * Math.sin(angle)).toFixed(2) + ' ' +
+            (cy - radius * Math.cos(angle)).toFixed(2);
+    }
+
+    function arcPath(cx, cy, outer, inner, start, end) {
+        var large = end - start > Math.PI ? 1 : 0;
+
+        return 'M' + polar(cx, cy, outer, start) +
+            ' A' + outer + ' ' + outer + ' 0 ' + large + ' 1 ' + polar(cx, cy, outer, end) +
+            ' L' + polar(cx, cy, inner, end) +
+            ' A' + inner + ' ' + inner + ' 0 ' + large + ' 0 ' + polar(cx, cy, inner, start) +
+            ' Z';
+    }
+
+    /** The whole ring, for the case where one slice is all of it. */
+    function ringPath(cx, cy, outer, inner) {
+        return 'M' + cx + ' ' + (cy - outer) +
+            ' A' + outer + ' ' + outer + ' 0 1 1 ' + (cx - 0.01) + ' ' + (cy - outer) + ' Z' +
+            ' M' + cx + ' ' + (cy - inner) +
+            ' A' + inner + ' ' + inner + ' 0 1 0 ' + (cx + 0.01) + ' ' + (cy - inner) + ' Z';
+    }
+
+    /**
+     * `items` are `{ key, label, sub, value, onPick }`; everything about how
+     * they are cut, coloured and folded happens in here.
+     */
+    function donutChart(container, items, options) {
+        var settings = options || {};
+
+        container.classList.remove('picking');
+        container.innerHTML = '';
+
+        var slices = foldSlices(items, settings.otherNoun);
+        var total = slices.reduce(function (sum, slice) { return sum + slice.value; }, 0);
+
+        if (!total) {
+            container.innerHTML = '<div class="chart-empty">No opens in this window.</div>';
             return;
         }
 
-        var rows = series.map(function (row) {
-            return '<tr><td>' + escapeHtml(fullLabel(row.bucket, unit)) + '</td><td class="num">' +
-                Number(row.opens).toLocaleString() + '</td></tr>';
+        var size = 212;
+        var centre = size / 2;
+        var outer = 100;
+        var inner = 64;
+
+        var paths = [];
+        var legend = [];
+        var angle = 0;
+
+        slices.forEach(function (slice, index) {
+            var share = slice.value / total;
+            var end = index === slices.length - 1 ? Math.PI * 2 : angle + share * Math.PI * 2;
+            var percent = share >= 0.1 ? Math.round(share * 100) : (share * 100).toFixed(1);
+
+            var d = slices.length === 1
+                ? ringPath(centre, centre, outer, inner)
+                : arcPath(centre, centre, outer, inner, angle, end);
+
+            paths.push(
+                '<path class="pie-slice" data-key="' + escapeHtml(slice.key) + '" fill="' + slice.color +
+                '" fill-rule="evenodd" d="' + d + '">' +
+                '<title>' + escapeHtml(slice.label) + ': ' + slice.value.toLocaleString() +
+                ' opens (' + percent + '%)</title></path>'
+            );
+
+            var tag = slice.onPick ? 'button' : 'div';
+            legend.push(
+                '<' + tag + ' class="legend-row' + (slice.onPick ? ' clickable' : '') +
+                '" data-key="' + escapeHtml(slice.key) + '"' +
+                (slice.onPick ? ' type="button"' : '') + '>' +
+                '<span class="legend-swatch" style="background: ' + slice.color + '"></span>' +
+                '<span class="legend-name">' + escapeHtml(slice.label) +
+                (slice.sub ? ' <span class="legend-sub">· ' + escapeHtml(slice.sub) + '</span>' : '') +
+                '</span>' +
+                '<span class="legend-value">' + slice.value.toLocaleString() + '</span>' +
+                '<span class="legend-share">' + percent + '%</span>' +
+                '</' + tag + '>'
+            );
+
+            angle = end;
         });
 
         container.innerHTML =
-            '<table><thead><tr><th>' + (unit === 'hour' ? 'Hour' : unit === 'month' ? 'Month' : 'Day') +
-            '</th><th class="num">Opens</th></tr></thead><tbody>' + rows.join('') + '</tbody></table>';
+            '<div class="pie-figure">' +
+            '<svg viewBox="0 0 ' + size + ' ' + size + '" role="img" aria-label="' +
+            escapeHtml(settings.ariaLabel || 'Share of opens') + '">' + paths.join('') + '</svg>' +
+            '<div class="pie-total"><div class="value">' + formatCount(total) + '</div>' +
+            '<div class="label">' + escapeHtml(settings.centreLabel || 'opens') + '</div></div>' +
+            '</div>' +
+            '<div class="pie-legend">' + legend.join('') + '</div>';
+
+        wireDonut(container, slices);
+    }
+
+    /**
+     * Hovering either half of the pair — the slice or its legend row — recedes
+     * everything else. The slices are thin and the names are long, so the two
+     * have to point at each other or the legend is just a list.
+     */
+    function wireDonut(container, slices) {
+        var byKey = {};
+        slices.forEach(function (slice) { byKey[slice.key] = slice; });
+
+        function highlight(key) {
+            container.classList.toggle('picking', Boolean(key));
+
+            container.querySelectorAll('[data-key]').forEach(function (node) {
+                node.classList.toggle('on', node.dataset.key === key);
+            });
+        }
+
+        container.querySelectorAll('[data-key]').forEach(function (node) {
+            node.addEventListener('mouseenter', function () { highlight(node.dataset.key); });
+            node.addEventListener('mouseleave', function () { highlight(null); });
+
+            var slice = byKey[node.dataset.key];
+            if (slice && slice.onPick) node.addEventListener('click', slice.onPick);
+        });
+    }
+
+    /** The creatives of an overview, as slices. */
+    function creativeSlices(assets) {
+        return assets.map(function (row) {
+            return {
+                key: row.assetType + '|' + row.assetId,
+                label: row.name,
+                sub: row.assetType === 'timer' ? 'timer' : 'image',
+                value: row.opens,
+                onPick: function () { openAsset(row.assetType, row.assetId, true); },
+            };
+        });
+    }
+
+    /** The same window cut by who made the creative — an admin's view. */
+    function userSlices(byUser) {
+        return (byUser || []).map(function (row) {
+            var value = row.userId === null ? 'none' : String(row.userId);
+
+            return {
+                key: 'user:' + value,
+                label: row.name,
+                sub: row.creatives + (row.creatives === 1 ? ' creative' : ' creatives'),
+                value: row.opens,
+                onPick: function () { selectScope(value); },
+            };
+        });
+    }
+
+    /** A window's own buckets, as slices — which days the opens landed in. */
+    function seriesSlices(series, unit) {
+        return series.map(function (row) {
+            return {
+                key: row.bucket,
+                label: fullLabel(row.bucket, unit),
+                value: row.opens,
+            };
+        });
+    }
+
+    function unitPlural(unit) {
+        return unit === 'hour' ? 'hours' : unit === 'month' ? 'months' : 'days';
     }
 
     /* --------------------------------------------------------------- tiles */
@@ -417,11 +638,13 @@
 
         var unitWord = data.unit === 'hour' ? 'hour' : data.unit === 'month' ? 'month' : 'day';
 
+        var live = data.assets.filter(function (row) { return !row.deleted; }).length;
+
         $('overviewKpis').innerHTML = [
             tile('Opens in this window', formatCount(data.total), deltaHtml(data.total, data.previousTotal)),
             tile('Creatives opened', formatCount(opened),
-                '<span class="muted">of ' + data.assets.filter(function (row) { return !row.deleted; }).length +
-                ' in the studio</span>'),
+                '<span class="muted">of ' + live +
+                (data.viewerIsAdmin ? ' in the studio' : ' of yours') + '</span>'),
             tile('Busiest ' + unitWord,
                 peak ? escapeHtml(peak.label) : '—',
                 peak ? '<span class="muted">' + peak.opens.toLocaleString() + ' opens</span>' : '', true),
@@ -431,9 +654,70 @@
 
         $('overviewChartHint').textContent = 'One column per ' + unitWord + ' · ' + formatWindow(window_);
         columnChart($('overviewChart'), seriesPoints(data.series, data.unit), { ariaLabel: 'Opens per ' + unitWord });
-        numbersTable(data.series, data.unit, $('overviewNumbers'));
 
+        paintScopePicker(data);
+        paintSharePie(data);
         paintAssetRows(data.assets);
+    }
+
+    /**
+     * The share donut, cut either by creative or — for an admin — by the
+     * person who made each one. Both cuts are the same total, so the toggle
+     * changes what the slices mean and never what they add up to.
+     */
+    function paintSharePie(data) {
+        var modes = $('shareModes');
+        modes.style.display = data.viewerIsAdmin ? '' : 'none';
+
+        if (!data.viewerIsAdmin) state.shareMode = 'creative';
+        var byUser = state.shareMode === 'user';
+
+        modes.querySelectorAll('button').forEach(function (button) {
+            button.classList.toggle('active', button.dataset.mode === (byUser ? 'user' : 'creative'));
+        });
+
+        donutChart(
+            $('overviewPie'),
+            byUser ? userSlices(data.byUser) : creativeSlices(data.assets),
+            {
+                centreLabel: byUser ? 'opens, by person' : 'opens in this window',
+                otherNoun: byUser ? 'more people' : 'more creatives',
+                ariaLabel: byUser ? 'Share of opens by person' : 'Share of opens by creative',
+            }
+        );
+    }
+
+    /**
+     * The "showing" control. It exists only for an admin: everybody else is
+     * looking at their own work and has nothing to choose between.
+     */
+    function paintScopePicker(data) {
+        var pick = $('scopePick');
+
+        if (!data.viewerIsAdmin) {
+            pick.classList.remove('visible');
+            return;
+        }
+
+        var select = $('userFilter');
+
+        if (!state.usersPainted) {
+            var options = ['<option value="all">Everyone</option>'];
+
+            (data.users || []).forEach(function (user) {
+                options.push('<option value="' + user.id + '">' + escapeHtml(user.name) + '</option>');
+            });
+
+            // The creatives written before ownership was recorded. They belong
+            // to nobody, so they are an admin's to look after.
+            options.push('<option value="none">Unassigned creatives</option>');
+
+            select.innerHTML = options.join('');
+            state.usersPainted = true;
+        }
+
+        select.value = state.scope;
+        pick.classList.add('visible');
     }
 
     function paintAssetRows(assets) {
@@ -529,7 +813,13 @@
 
         $('detailChartHint').textContent = 'One column per ' + unitWord + ' · ' + formatWindow(window_);
         columnChart($('detailChart'), seriesPoints(data.series, data.unit), { ariaLabel: 'Opens per ' + unitWord });
-        numbersTable(data.series, data.unit, $('detailNumbers'));
+
+        $('detailPieHint').textContent = 'Which ' + unitPlural(data.unit) + ' the opens landed in';
+        donutChart($('detailPie'), seriesSlices(data.series, data.unit), {
+            centreLabel: 'opens in this window',
+            otherNoun: 'quieter ' + unitPlural(data.unit),
+            ariaLabel: 'Share of opens per ' + unitWord,
+        });
 
         // The hour-of-day profile is a supporting chart, so only the peak hour
         // carries the accent — the rest are context for it.
@@ -643,11 +933,12 @@
             params.set('type', state.asset.type);
             params.set('id', state.asset.id);
         }
-        if (state.range !== 'last30') params.set('range', state.range);
+        if (state.range !== DEFAULT_RANGE) params.set('range', state.range);
         if (state.range === 'custom') {
             if ($('fromDate').value) params.set('from', $('fromDate').value);
             if ($('toDate').value) params.set('to', $('toDate').value);
         }
+        if (state.scope && state.scope !== 'all') params.set('user', state.scope);
 
         var query = params.toString();
         return window.location.pathname + (query ? '?' + query : '');
@@ -676,6 +967,10 @@
         var params = new URLSearchParams(window.location.search);
         var type = params.get('type');
         var id = params.get('id');
+
+        // Only an admin's link carries this, and only the server can honour
+        // it — a member's page comes back scoped to them whatever it says.
+        if (params.get('user')) state.scope = params.get('user');
 
         var preset = params.get('range');
         if (preset && PRESETS.indexOf(preset) > -1) {
@@ -716,6 +1011,26 @@
         }
     }
 
+    /**
+     * Point the page at one person's creatives, or at all of them.
+     *
+     * It always lands on the overview: narrowing to somebody while a single
+     * creative is open would change the answer to a question that is not on
+     * screen, and the page would look as though nothing had happened.
+     */
+    function selectScope(value) {
+        state.scope = value || 'all';
+        state.overview = null;
+
+        var select = $('userFilter');
+        if (select.options.length) select.value = state.scope;
+
+        state.asset = null;
+        showView('overview');
+        rememberUrl(false);
+        loadOverview();
+    }
+
     function selectRange(preset) {
         markRange(preset);
 
@@ -741,6 +1056,17 @@
             reload();
         });
 
+        $('userFilter').addEventListener('change', function () {
+            selectScope($('userFilter').value);
+        });
+
+        $('shareModes').querySelectorAll('button').forEach(function (button) {
+            button.addEventListener('click', function () {
+                state.shareMode = button.dataset.mode;
+                if (state.overview) paintSharePie(state.overview.data);
+            });
+        });
+
         $('refreshBtn').innerHTML = window.shellIcon('refresh');
         $('refreshBtn').addEventListener('click', function () {
             state.overview = null;
@@ -756,7 +1082,10 @@
             var preset = params.get('range');
 
             if (preset && PRESETS.indexOf(preset) > -1) markRange(preset);
-            else markRange('last30');
+            else markRange(DEFAULT_RANGE);
+
+            state.scope = params.get('user') || 'all';
+            if ($('userFilter').options.length) $('userFilter').value = state.scope;
 
             state.overview = null;
 

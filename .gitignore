@@ -1,13 +1,63 @@
+# What belongs in this repository: everything needed to RUN or DEPLOY the app,
+# and nothing else. Anything that is only read — notes, reports, plans, dumps —
+# is kept on this machine and ignored here.
+#
+# One name is deliberately NOT in this file and must never be added:
+#
+#   docs/        despite the name, this is the FRONT END — every page, script
+#                and stylesheet the server serves. It is called docs/ because
+#                GitHub Pages will only publish from a folder with that exact
+#                name. Ignoring it would ship a server with no UI.
+
+# --- Installed, generated, or local to one machine --------------------------
 node_modules/
-.env
 .DS_Store
 npm-debug.log*
+*.log
+logs/
+coverage/
+.nyc_output/
+*.tsbuildinfo
 
-# Local-only, deliberately not in the repository.
-#
-# These are kept on this machine but not shared: notes that name hosts and
-# instance plans, the SQL record of a schema the app already creates for itself
-# on boot, and one-off dumps. Nothing here is read at runtime — src/db/schema.js
-# is what actually guarantees the tables exist, so a fresh clone still runs.
+# Editor and IDE state — one person's window layout, not the project's.
+.vscode/
+.idea/
+*.swp
+
+# --- Secrets ----------------------------------------------------------------
+# .env holds the session secret, the database password and the cache password.
+# .env.example is the opposite — it is the template you copy to create one, so
+# it stays.
+.env
+.env.*
+!.env.example
+
+# A provider's CA bundle, referenced by DB_SSL_CA (see src/config/index.js).
+# Not secret in itself, but it is per-deployment and belongs with the deployment.
+certs/
+*.pem
+*.key
+
+# --- Read-only, deliberately not in the repository --------------------------
+# Notes, plans and reports. They name hosts, instance plans and capacity
+# numbers, nothing reads them at runtime, and a fresh clone runs without them.
 documents/
+
+# The SQL record of a schema the app already creates for itself on boot.
+# src/db/schema.js is what actually guarantees the tables exist, so these are a
+# reference copy rather than a dependency.
 migrations/
+
+# Provisioning, deploy and load-test scripts. They name hosts, instance types
+# and account details, and they are run by hand from this machine rather than
+# by the app, so they stay local.
+scripts/
+
+# One-off dumps and exports taken while debugging.
+*.sql.gz
+*.dump
+dump.rdb
+
+# Load-test output, from the harness in scripts/.
+artillery-report*.json
+artillery-report*.html

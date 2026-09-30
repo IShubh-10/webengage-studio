@@ -106,23 +106,46 @@ async function nextTemplateId() {
   return `WEB-${String(num).padStart(2, '0')}`;
 }
 
+/**
+ * Narrows a library query to one person's work.
+ *
+ * Three cases, and they are deliberately distinct: `undefined` means no
+ * restriction at all (an admin looking at the whole studio), a number means
+ * that account's own templates, and `null` means the rows written before
+ * ownership was recorded — which belong to nobody and are an admin's to sort
+ * out.
+ */
+function ownerClause(createdBy) {
+  if (createdBy === undefined) return { sql: '', params: [] };
+  if (createdBy === null) return { sql: 'WHERE t.created_by IS NULL', params: [] };
+  return { sql: 'WHERE t.created_by = ?', params: [Number(createdBy)] };
+}
+
 /*
- * One query for the whole library — the layers travel with the row, and so
- * does the author, which the studio needs to say whose template this is and to
- * decide who may change it. LEFT JOIN, so a template outlives the account that
- * made it instead of disappearing from everyone's library.
+ * One query for the library — the layers travel with the row, and so does the
+ * author, which the studio needs to say whose template this is and to decide
+ * who may change it. LEFT JOIN, so a template outlives the account that made
+ * it instead of vanishing from the admin's view of the studio.
+ *
+ * `createdBy` is what keeps a member's library to their own work: the filter
+ * is applied in SQL rather than after the fetch, so somebody else's template
+ * never travels to a browser that may not see it.
  *
  * Note what is *not* here: whether the current viewer may edit. This result is
  * shared between users through the Redis list cache, so a per-viewer answer
  * must be computed after the cache, not inside it.
  */
-async function listTemplates() {
+async function listTemplates({ createdBy } = {}) {
+  const owner = ownerClause(createdBy);
+
   const [rows] = await db.query(
     `SELECT t.template_id, t.background_url, t.elements, t.created_at, t.created_by,
             u.name AS created_by_name
        FROM templates t
        LEFT JOIN users u ON u.id = t.created_by
-      ORDER BY t.created_at DESC`
+      ${owner.sql}
+      ORDER BY t.created_at DESC`,
+    owner.params
   );
 
   return rows.map((row) => ({
@@ -199,12 +222,16 @@ function updateBackgroundUrl(templateId, url) {
  * of bytes to move to answer "what is this creative called". The stats table
  * needs a row per creative and nothing else.
  */
-async function listTemplateNames() {
+async function listTemplateNames({ createdBy } = {}) {
+  const owner = ownerClause(createdBy);
+
   const [rows] = await db.query(
     `SELECT t.template_id, t.created_by, u.name AS created_by_name
        FROM templates t
        LEFT JOIN users u ON u.id = t.created_by
-      ORDER BY t.template_id ASC`
+      ${owner.sql}
+      ORDER BY t.template_id ASC`,
+    owner.params
   );
 
   return rows.map((row) => ({

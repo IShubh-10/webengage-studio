@@ -102,12 +102,30 @@ const {
   ensureStatsSchema,
 } = require('./db/schema');
 const { flushNow } = require('./services/openCounter');
+const { startedHere, connectedTo, note, print } = require('./lib/bootReport');
 const {
   PORT,
+  WORKER_COUNT,
   WEBENGAGE_API_KEY,
   WEBENGAGE_OTP_URL,
   RATE_LIMIT_ENABLED,
 } = require('./config');
+
+/*
+ * The four tables the server guarantees on boot. Collected into one line of the
+ * summary rather than four of their own, because "they are all there" is the
+ * only thing worth a line when nothing is wrong. A failure still prints
+ * immediately and in full — it must not wait for a summary printed afterwards —
+ * and the summary then names which table did not come up.
+ */
+const SCHEMA_STEPS = [
+  ['users', ensureAuthSchema, 'login and register will fail'],
+  ['templates', ensureTemplateSchema, 'saving and listing templates will fail'],
+  ['timers', ensureTimerSchema, 'saving and listing timers will fail'],
+  // Counting is not worth refusing to serve images over: the counter retries
+  // the schema on its next flush and everything else works meanwhile.
+  ['asset_opens', ensureStatsSchema, 'stats will be empty'],
+];
 
 const server = app.listen(PORT, async () => {
   await initRedis();
@@ -116,57 +134,61 @@ const server = app.listen(PORT, async () => {
   // in-memory caches of all the others.
   initInvalidation();
 
-  try {
-    await ensureAuthSchema();
-    console.log('✅ Auth schema ready (users table)');
-  } catch (err) {
-    console.error('❌ Could not prepare the users table — login/register will fail:', err.message);
+  startedHere(`HTTP listening on http://localhost:${PORT}`);
+
+  const ready = [];
+  const failed = [];
+
+  for (const [table, ensure, consequence] of SCHEMA_STEPS) {
+    try {
+      await ensure();
+      ready.push(table);
+    } catch (err) {
+      failed.push(table);
+      console.error(`❌ Could not prepare the ${table} table — ${consequence}: ${err.message}`);
+    }
   }
 
-  try {
-    await ensureTemplateSchema();
-    console.log('✅ Template schema ready (templates.elements JSON)');
-  } catch (err) {
-    console.error('❌ Could not prepare the templates table:', err.message);
-  }
+  startedHere(
+    `schema ready — ${ready.join(', ') || 'nothing'}` +
+      (failed.length ? `   (FAILED: ${failed.join(', ')})` : '')
+  );
 
-  try {
-    await ensureTimerSchema();
-    console.log('✅ Timer schema ready (timers.config JSON)');
-  } catch (err) {
-    console.error('❌ Could not prepare the timers table:', err.message);
-  }
-
-  try {
-    await ensureStatsSchema();
-    console.log('✅ Open stats schema ready (asset_opens hourly buckets)');
-  } catch (err) {
-    // Counting is not worth refusing to serve images over: the counter retries
-    // the schema on its next flush, and everything else works meanwhile.
-    console.error('❌ Could not prepare the asset_opens table — stats will be empty:', err.message);
-  }
-
+  // The OTP campaign is WebEngage's, running on WebEngage's servers. This
+  // process calls it; it does not host it.
   if (WEBENGAGE_API_KEY) {
-    console.log(`✅ OTP delivery configured (${WEBENGAGE_OTP_URL})`);
+    let host = WEBENGAGE_OTP_URL;
+    try {
+      host = new URL(WEBENGAGE_OTP_URL).host;
+    } catch (err) {
+      // Leave the raw value in the summary — a URL that will not parse is
+      // worth seeing in full.
+    }
+    connectedTo('OTP', `${host} (registration codes)`);
   } else {
-    console.warn(
-      '⚠️ WEBENGAGE_API_KEY is not set — registration OTPs will NOT be delivered.\n' +
-        '   Add it to .env (see .env.example) and restart:  WEBENGAGE_API_KEY=your-key\n' +
-        '   Until then, each code is printed in this log so sign-up can still be tested.'
+    connectedTo('OTP', 'not configured — codes are printed in this log only');
+    note(
+      '⚠️ WEBENGAGE_API_KEY is not set, so registration OTPs will NOT be delivered.\n' +
+        '      Add it to .env (see .env.example) and restart. Until then each code is\n' +
+        '      printed here so sign-up can still be tested.'
     );
   }
 
-  // Left off after a load test, this is an open door — say so every boot
-  // rather than letting it disappear into the deploy log.
+  // Left off after a load test, this is an open door — say so every boot rather
+  // than letting it disappear into the deploy log.
   if (!RATE_LIMIT_ENABLED) {
-    console.warn(
+    note(
       '⚠️ RATE_LIMIT_ENABLED=false — every per-IP rate limit is bypassed.\n' +
-        '   This is the load-testing switch. Unset it before serving real traffic:\n' +
-        '   OTP sends, login attempts and timer GIF requests are all uncapped.'
+        '      This is the load-testing switch. Unset it before serving real traffic:\n' +
+        '      OTP sends, login attempts and timer GIF requests are all uncapped.'
     );
   }
 
-  console.log(`✨ Worker ${cluster.worker?.id || 'standalone'} listening on http://localhost:${PORT}`);
+  print(
+    cluster.worker
+      ? `Webengage Studio — worker ${cluster.worker.id} of ${WORKER_COUNT}`
+      : 'Webengage Studio'
+  );
 });
 
 async function gracefulShutdown() {
@@ -183,8 +205,11 @@ async function gracefulShutdown() {
     try {
       await closeInvalidation();
       if (redisState.client) {
+        // Closing this process's connection. The cache itself is another
+        // service — a Homebrew service locally, its own EC2 instance in the
+        // deployment — and keeps running with every other client attached.
         await redisState.client.quit();
-        console.log('✅ Redis connection closed');
+        console.log('✅ Redis connection closed (the cache itself keeps running)');
       }
     } catch (err) {
       console.error('Error closing Redis:', err.message);
@@ -192,7 +217,7 @@ async function gracefulShutdown() {
 
     try {
       await db.end();
-      console.log('✅ MySQL pool closed');
+      console.log('✅ MySQL pool closed (the database itself keeps running)');
     } catch (err) {
       console.error('Error closing MySQL:', err.message);
     }

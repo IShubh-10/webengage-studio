@@ -15,6 +15,8 @@
 
 const mysql = require('mysql2/promise');
 
+const { connectedTo } = require('../lib/bootReport');
+
 const {
   DB_HOST,
   DB_PORT,
@@ -50,13 +52,17 @@ const db = mysql.createPool({
   keepAliveInitialDelay: 30000,
 });
 
-if (process.env.NODE_ENV === 'production') {
-  console.log(`🗄️ MySQL ${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME} (TLS ${DB_SSL ? 'on' : 'off'})`);
-  console.log(
-    `🗄️ MySQL pool: ${DB_CONNECTION_LIMIT} connections per worker x ${WORKER_COUNT} worker(s) = ${
-      DB_CONNECTION_LIMIT * WORKER_COUNT
-    } max — keep this under the server's max_connections`
-  );
-}
+// The database runs somewhere else entirely — a managed host reached over the
+// public internet — so it belongs in the boot summary's "connected to" half
+// rather than among the things this process starts. Registered in every
+// environment, not only production: knowing which database a local run is
+// pointed at is worth exactly as much.
+connectedTo(
+  'MySQL',
+  `${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME} (TLS ${DB_SSL ? 'on' : 'off'})`,
+  `${DB_CONNECTION_LIMIT} connections per worker x ${WORKER_COUNT} = ${
+    DB_CONNECTION_LIMIT * WORKER_COUNT
+  } max — keep under the server's max_connections`
+);
 
 module.exports = db;

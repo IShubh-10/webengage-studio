@@ -18,6 +18,43 @@ const PUBLIC_DIR = path.join(ROOT_DIR, 'docs');
 // here, it reports the host's cores rather than the container's CPU limit.
 const WORKER_COUNT = Math.max(1, Number(process.env.WORKER_COUNT || process.env.WORKERS || 1));
 
+// --- Proxy and client identity -----------------------------------------------
+// Every request reaches this process through something else — a CDN edge, or an
+// nginx on the same EC2 instance — so the socket address is that proxy for all
+// of them and `req.ip` is only meaningful once express is told how many hops to
+// look past.
+//
+// The number matters. `trust proxy: true` means "trust the whole chain", and
+// express then reads the LEFTMOST entry of X-Forwarded-For — which is whatever
+// the caller sent, because only the last proxy's append is trustworthy. Behind
+// one nginx that turns the per-IP rate limiter into a decoration: a client
+// picks a new X-Forwarded-For per request and gets a fresh bucket each time.
+// Set TRUST_PROXY to the number of proxies actually in front of the app (1 for
+// a single nginx on the same box) and express counts back from the right.
+//
+// `true` stays the default only because that is what the current deployment
+// behind a CDN edge already does; a new deployment should set the number.
+const TRUST_PROXY = (() => {
+  const raw = String(process.env.TRUST_PROXY ?? 'true').trim();
+  if (raw === '' || raw.toLowerCase() === 'true') return true;
+  if (raw.toLowerCase() === 'false') return false;
+  if (/^\d+$/.test(raw)) return Number(raw);
+  // Anything else — an IP, a CIDR, a comma separated list — express parses.
+  return raw;
+})();
+
+// A header the edge sets fresh on every request and therefore one a caller
+// cannot forge. Cloudflare's `CF-Connecting-IP` is the one this app was built
+// against; behind a plain nginx there is no such header, and trusting the name
+// anyway is worse than useless — nothing strips an inbound copy, so a caller
+// could set it themselves and rotate their own rate-limit bucket at will.
+//
+// Set it to an empty string on any deployment whose proxy does not write it,
+// and `req.ip` (with TRUST_PROXY above) is used on its own.
+const CLIENT_IP_HEADER = String(process.env.CLIENT_IP_HEADER ?? 'cf-connecting-ip')
+  .trim()
+  .toLowerCase();
+
 // --- MySQL connection ---------------------------------------------------------
 // Every one of these comes from the environment (.env locally, the dashboard's
 // environment panel in a deployment), because a managed database hands you a
@@ -342,6 +379,8 @@ module.exports = {
   ROOT_DIR,
   PORT,
   WORKER_COUNT,
+  TRUST_PROXY,
+  CLIENT_IP_HEADER,
   DB_HOST,
   DB_PORT,
   DB_USER,

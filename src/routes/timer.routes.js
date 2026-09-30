@@ -237,15 +237,22 @@ router.get('/api/v1/timers', requireAuth, async (req, res) => {
     await ensureTimerSchema();
 
     /*
+     * A member's library is their own timers; an admin's is the studio,
+     * grouped in the browser by who made each one. The narrowing happens in
+     * SQL rather than after the fetch, so a timer a member may not see is
+     * never sent to them in the first place.
+     *
      * `canEdit` is decided here rather than in the browser so the rule lives in
      * exactly one place — the same answer the write endpoints will give. The
      * role is looked up once for the whole list instead of once per row.
      */
     const admin = await isAdminUser(req.user);
-    const timers = (await listTimers()).map((timer) => ({
-      ...timer,
-      canEdit: admin || Number(timer.created_by) === Number(req.user.uid),
-    }));
+    const timers = (await listTimers({ createdBy: admin ? undefined : Number(req.user.uid) })).map(
+      (timer) => ({
+        ...timer,
+        canEdit: admin || Number(timer.created_by) === Number(req.user.uid),
+      })
+    );
 
     res.json({ success: true, timers, viewerIsAdmin: admin });
   } catch (err) {
@@ -260,6 +267,17 @@ router.get('/api/v1/timers/:timerId', requireAuth, async (req, res) => {
 
     const timer = await findTimer(req.params.timerId);
     if (!timer) return res.status(404).json({ error: 'Timer not found' });
+
+    /*
+     * The library no longer lists other people's timers, so this endpoint must
+     * not hand one over either — otherwise the id in the URL is all it takes
+     * to read a colleague's definition. Owner or admin, the same rule the
+     * write endpoints use.
+     */
+    const owner = await timerOwner(req.params.timerId);
+    if (!(await canManage(req.user, owner ? owner.createdBy : null))) {
+      return res.status(403).json({ error: 'That timer is not one of yours' });
+    }
 
     res.json({ success: true, timer });
   } catch (err) {

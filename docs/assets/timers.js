@@ -719,18 +719,150 @@
 
     /* ----------------------------------------------------------- library */
 
-    async function loadLibrary() {
-        const grid = $('timerGrid');
-        grid.innerHTML = '';
+    /*
+     * A member's library is their own timers, so it is a plain grid of them.
+     * An admin's is the whole studio, and a flat grid of everybody's work says
+     * nothing about whose is whose — so theirs is a folder per person.
+     *
+     * It behaves like a folder rather than an accordion: the library shows the
+     * folders, opening one shows what is inside it, and a crumb bar takes you
+     * back out. The admin's own folder comes first, then everyone else
+     * alphabetically, with the timers that predate ownership last, since
+     * nobody can claim them.
+     */
+    const library = { admin: false, timers: [], folder: null };
 
+    function ownerFolders(timers) {
+        const mine = window.shellUser ? Number(window.shellUser.id) : null;
+        const folders = new Map();
+
+        timers.forEach((timer) => {
+            const owned = timer.created_by !== null && timer.created_by !== undefined;
+            const key = owned ? String(timer.created_by) : 'none';
+
+            if (!folders.has(key)) {
+                folders.set(key, {
+                    key,
+                    name: owned
+                        ? (timer.created_by_name || 'Someone who has since left')
+                        : 'Unassigned',
+                    isMine: owned && mine !== null && Number(timer.created_by) === mine,
+                    timers: [],
+                });
+            }
+
+            folders.get(key).timers.push(timer);
+        });
+
+        return Array.from(folders.values()).sort((a, b) => {
+            if (a.isMine !== b.isMine) return a.isMine ? -1 : 1;
+            if ((a.key === 'none') !== (b.key === 'none')) return a.key === 'none' ? 1 : -1;
+            return a.name.localeCompare(b.name);
+        });
+    }
+
+    function folderCount(folder) {
+        const count = folder.timers.length;
+        return `${count} timer${count === 1 ? '' : 's'}`;
+    }
+
+    function folderCard(folder) {
+        const card = document.createElement('button');
+        card.className = 'folder-card';
+        card.type = 'button';
+
+        card.innerHTML = `
+            <span class="folder-card-head">
+                <span class="folder-card-name"></span>
+                ${folder.isMine ? '<span class="folder-card-you">you</span>' : ''}
+            </span>
+            <span class="folder-card-count"></span>`;
+
+        card.querySelector('.folder-card-name').textContent = folder.name;
+        card.querySelector('.folder-card-count').textContent = folderCount(folder);
+        card.addEventListener('click', () => openFolder(folder.key));
+
+        return card;
+    }
+
+    /** The crumb bar above an open folder: where you are, and the way out. */
+    function folderBar(folder) {
+        const bar = document.createElement('div');
+        bar.className = 'folder-bar';
+
+        bar.innerHTML = `
+            <button class="btn small" type="button">All folders</button>
+            <span class="folder-crumb">${window.shellIcon('folder')}
+                <span class="folder-crumb-name"></span>
+                <span class="muted"></span>
+            </span>`;
+
+        bar.querySelector('.folder-crumb-name').textContent = folder.name;
+        bar.querySelector('.muted').textContent = `· ${folderCount(folder)}`;
+        bar.querySelector('button').addEventListener('click', () => openFolder(null));
+
+        return bar;
+    }
+
+    function openFolder(key) {
+        library.folder = key;
+        renderLibrary();
+    }
+
+    function gridOf(className, children) {
+        const grid = document.createElement('div');
+        grid.className = className;
+        children.forEach((child) => grid.appendChild(child));
+        return grid;
+    }
+
+    function renderLibrary() {
+        const container = $('timerGrid');
+        container.innerHTML = '';
+
+        $('libraryEmpty').style.display = library.timers.length ? 'none' : '';
+        if (!library.timers.length) return;
+
+        if (!library.admin) {
+            container.appendChild(gridOf('timer-grid', library.timers.map(timerCard)));
+            return;
+        }
+
+        const folders = ownerFolders(library.timers);
+        const open = folders.find((folder) => folder.key === library.folder);
+
+        // The folder that was open can disappear underneath you — its last
+        // timer deleted, or the library reloaded. Falling back to the folder
+        // list beats rendering an empty room.
+        if (library.folder !== null && !open) library.folder = null;
+
+        if (library.folder === null) {
+            container.appendChild(gridOf('folder-grid', folders.map(folderCard)));
+            return;
+        }
+
+        container.appendChild(folderBar(open));
+        container.appendChild(gridOf('timer-grid', open.timers.map(timerCard)));
+    }
+
+    async function loadLibrary() {
         try {
             const response = await window.apiFetch('/api/v1/timers');
             const data = await response.json();
-            const timers = data.timers || [];
 
-            $('libraryEmpty').style.display = timers.length ? 'none' : '';
+            // A member's library is their own timers; an admin's is everyone's.
+            const lead = $('libraryLead');
+            if (lead) {
+                lead.textContent = data.viewerIsAdmin
+                    ? 'Every countdown in the studio, in a folder for whoever created it.'
+                    : 'The countdowns you have saved. Copy a URL straight into a campaign.';
+            }
 
-            timers.forEach((timer) => grid.appendChild(timerCard(timer)));
+            library.admin = Boolean(data.viewerIsAdmin);
+            library.timers = data.timers || [];
+            if (!library.admin) library.folder = null;
+
+            renderLibrary();
         } catch (err) {
             toast(err.message, 'error');
         }
@@ -904,6 +1036,15 @@
 
         wireDragging();
     }
+
+    /*
+     * The library can be drawn before /me resolves, and until it does there is
+     * no telling which folder is the reader's own. Redrawing once the session
+     * lands is cheaper than holding the whole library back for it.
+     */
+    document.addEventListener('shell:user', () => {
+        if (library.timers.length) renderLibrary();
+    });
 
     document.addEventListener('DOMContentLoaded', async () => {
         wireControls();

@@ -38,10 +38,12 @@ services:
       - key: SESSION_SECRET
         generateValue: true
 
-      # Internal redis:// URL, private to the Render network. src/config/redis.js
-      # also carries this instance's internal URL as a production fallback, so a
-      # service created by hand rather than from this blueprint still finds it —
-      # this variable wins whenever it is set.
+      # Internal redis:// URL, private to the Render network. This is now the
+      # ONLY thing that points the app at a cache: src/config/redis.js used to
+      # carry this instance's internal hostname as a production fallback and no
+      # longer does, because that name resolves nowhere outside Render and made
+      # the app retry a dead host forever when deployed anywhere else. A service
+      # created by hand rather than from this blueprint must set it itself.
       - key: REDIS_URL
         fromService:
           type: keyvalue

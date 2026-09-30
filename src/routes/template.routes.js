@@ -35,40 +35,64 @@ router.get('/api/v1/templates/next-id', requireAuth, async (req, res) => {
 });
 
 /*
- * The list cache is shared between users, so only the rows go in it. Whether
- * *this* viewer may edit each one is stamped on afterwards — putting a
- * per-viewer answer inside a shared cache entry would hand the first caller's
- * permissions to everybody else for the next five minutes.
+ * The library is not one list any more, so the cache is not one entry.
  *
- * The key is versioned because the cached shape changed when the author
- * joined the row: entries written by the previous release would otherwise be
- * served for their remaining TTL with no owner on them.
+ * A member sees the templates they made and nothing else; an admin sees the
+ * studio, grouped by who made it. Those are different result sets, so they get
+ * different keys — caching a member's list under a shared key would hand their
+ * private library to the next caller, and caching the admin's would hand
+ * everybody the whole studio.
+ *
+ * The prefix is versioned so that entries written by the previous release,
+ * which held every template under one key, are not served to a member for the
+ * rest of their TTL.
  */
-const TEMPLATE_LIST_CACHE_KEY = 'templates_all_v2';
+const TEMPLATE_LIST_CACHE_PREFIX = 'templates_list_v3';
 
-async function withEditability(templates, user) {
+function listCacheKey(scope) {
+  if (scope.admin) return `${TEMPLATE_LIST_CACHE_PREFIX}:all`;
+  return `${TEMPLATE_LIST_CACHE_PREFIX}:u${scope.createdBy}`;
+}
+
+/**
+ * Whose templates this request may see.
+ *
+ * `createdBy` is `undefined` for an admin, which the repository reads as no
+ * restriction at all. Everyone else is pinned to their own id, in SQL — the
+ * filter is not something the browser can ask to have lifted.
+ */
+async function libraryScope(user) {
   const admin = await isAdminUser(user);
-  return {
-    viewerIsAdmin: admin,
-    templates: templates.map((template) => ({
-      ...template,
-      canEdit: admin || Number(template.created_by) === Number(user.uid),
-    })),
-  };
+  return { admin, createdBy: admin ? undefined : Number(user.uid) };
+}
+
+/*
+ * Whether *this* viewer may edit each row is stamped on after the cache, never
+ * inside it: a per-viewer answer in a shared entry would hand the first
+ * caller's permissions to everybody else for the next five minutes.
+ */
+function withEditability(templates, user, admin) {
+  return templates.map((template) => ({
+    ...template,
+    canEdit: admin || Number(template.created_by) === Number(user.uid),
+  }));
 }
 
 router.get('/api/v1/templates', requireAuth, async (req, res) => {
   try {
+    const scope = await libraryScope(req.user);
+    const cacheKey = listCacheKey(scope);
+
     // Check Redis first
     if (redisState.connected) {
       try {
-        const cachedList = await redisState.client.get(TEMPLATE_LIST_CACHE_KEY);
+        const cachedList = await redisState.client.get(cacheKey);
         if (cachedList) {
-          const { templates, viewerIsAdmin } = await withEditability(
-            JSON.parse(cachedList),
-            req.user
-          );
-          return res.json({ success: true, templates, viewerIsAdmin });
+          return res.json({
+            success: true,
+            templates: withEditability(JSON.parse(cachedList), req.user, scope.admin),
+            viewerIsAdmin: scope.admin,
+          });
         }
       } catch (err) {
         console.warn('⚠️ Redis get error:', err.message);
@@ -77,19 +101,20 @@ router.get('/api/v1/templates', requireAuth, async (req, res) => {
 
     await ensureTemplateSchema();
 
-    const rows = await listTemplates();
+    const rows = await listTemplates({ createdBy: scope.createdBy });
 
     // Cache asynchronously (don't block response)
     if (redisState.connected) {
-      redisState.client
-        .set(TEMPLATE_LIST_CACHE_KEY, JSON.stringify(rows), 'EX', 300)
-        .catch((err) => {
-          console.warn('⚠️ Redis set error:', err.message);
-        });
+      redisState.client.set(cacheKey, JSON.stringify(rows), 'EX', 300).catch((err) => {
+        console.warn('⚠️ Redis set error:', err.message);
+      });
     }
 
-    const { templates, viewerIsAdmin } = await withEditability(rows, req.user);
-    res.json({ success: true, templates, viewerIsAdmin });
+    res.json({
+      success: true,
+      templates: withEditability(rows, req.user, scope.admin),
+      viewerIsAdmin: scope.admin,
+    });
   } catch (err) {
     console.error('Error fetching templates:', err);
     res.status(500).json({ error: 'Failed to fetch templates' });
@@ -217,9 +242,13 @@ router.post('/api/v1/templates/:templateId/delete', requireAuth, async (req, res
 async function invalidateTemplateCaches(templateId) {
   if (redisState.connected) {
     try {
-      await redisState.client.del(`template_schema:${templateId}`, TEMPLATE_LIST_CACHE_KEY);
+      await redisState.client.del(`template_schema:${templateId}`);
       // SCAN rather than KEYS: the render cache can hold a key per variable
       // combination, and KEYS blocks the whole server while it walks them.
+      // The library is cached once per reader now, so every one of those
+      // entries goes — an admin's view of the studio is as stale after a save
+      // as the owner's own list.
+      await scanDelete(`${TEMPLATE_LIST_CACHE_PREFIX}:*`);
       await scanDelete(`render:${templateId}:*`);
     } catch (err) {
       console.warn('\u26a0\ufe0f Cache invalidation error:', err.message);

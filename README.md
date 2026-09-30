@@ -66,10 +66,12 @@ src/
   routes/                    HTTP only: validate, call a service, respond
     index.js                 mounts every router
     auth.routes.js           sign-up, sign-in, session, member admin
-    template.routes.js       template CRUD (delete is owner-or-admin)
+    template.routes.js       template CRUD (the library is scoped to the
+                              reader; edit and delete are owner-or-admin)
     render.routes.js         public PNG rendering
     timer.routes.js          public countdown GIF + the builder's endpoints
-    stats.routes.js          open stats for the studio and for one creative
+    stats.routes.js          open stats, scoped to the reader: a member's own
+                              creatives, or the whole studio for an admin
     page.routes.js           HTML entry points, gated by session
     health.routes.js         /health and /metrics
 docs/                        the front end (no build step)
@@ -81,7 +83,7 @@ docs/                        the front end (no build step)
   assets/shell.js            navigation, session handling, icon set
   assets/origin.js           the one place that knows the deployed API origin
   assets/timers.js           the countdown timer builder
-  assets/stats.js            the open-stats page: windows, charts, tables
+  assets/stats.js            the open-stats page: windows, columns, share donut
 migrations/                  reviewable SQL, applied automatically on boot too
 scripts/                     one-off operational scripts
 documents/                   deployment, scaling and design notes — deliberately

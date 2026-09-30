@@ -21,6 +21,17 @@ function parseConfig(value) {
   }
 }
 
+/**
+ * Narrows a listing to one person's timers, the same three cases the template
+ * repository uses: `undefined` for everything, a number for that account, and
+ * `null` for the rows written before ownership was recorded.
+ */
+function ownerClause(createdBy) {
+  if (createdBy === undefined) return { sql: '', params: [] };
+  if (createdBy === null) return { sql: 'WHERE t.created_by IS NULL', params: [] };
+  return { sql: 'WHERE t.created_by = ?', params: [Number(createdBy)] };
+}
+
 async function nextTimerId() {
   const [rows] = await db.query(
     "SELECT timer_id FROM timers WHERE timer_id REGEXP '^TMR-[0-9]+$' ORDER BY CAST(SUBSTRING(timer_id, 5) AS UNSIGNED) DESC LIMIT 1"
@@ -36,16 +47,23 @@ async function nextTimerId() {
  * The creator comes back with every row because the library needs it twice:
  * to say whose timer this is, and to decide whether this viewer may change it.
  * LEFT JOIN rather than an inner one — a timer outlives the account that made
- * it, and a deleted colleague must not make their timers disappear from
- * everyone else's library.
+ * it, and a deleted colleague must not make their timers disappear from the
+ * admin's view of the studio.
+ *
+ * `createdBy` keeps a member's library to their own work, in SQL, so somebody
+ * else's timer never travels to a browser that may not see it.
  */
-async function listTimers() {
+async function listTimers({ createdBy } = {}) {
+  const owner = ownerClause(createdBy);
+
   const [rows] = await db.query(
     `SELECT t.timer_id, t.name, t.config, t.created_at, t.updated_at, t.created_by,
             u.name AS created_by_name
        FROM timers t
        LEFT JOIN users u ON u.id = t.created_by
-      ORDER BY t.created_at DESC`
+      ${owner.sql}
+      ORDER BY t.created_at DESC`,
+    owner.params
   );
 
   return rows.map((row) => ({
@@ -105,14 +123,20 @@ async function deleteTimer(timerId) {
 
 /**
  * Ids, names and owners only, for the stats page — without the config JSON
- * `listTimers` has to parse and normalise for every row.
+ * `listTimers` has to parse and normalise for every row. The owner comes back
+ * because the stats page is scoped by it: a member sees their own creatives
+ * and nobody else's.
  */
-async function listTimerNames() {
+async function listTimerNames({ createdBy } = {}) {
+  const owner = ownerClause(createdBy);
+
   const [rows] = await db.query(
     `SELECT t.timer_id, t.name, t.created_by, u.name AS created_by_name
        FROM timers t
        LEFT JOIN users u ON u.id = t.created_by
-      ORDER BY t.timer_id ASC`
+      ${owner.sql}
+      ORDER BY t.timer_id ASC`,
+    owner.params
   );
 
   return rows.map((row) => ({

@@ -43,7 +43,10 @@ function parseRange(query) {
   const offsetMinutes = clampOffset(query.tzOffset);
 
   let to = parseInstant(query.to, now);
-  let from = parseInstant(query.from, to - 30 * DAY_MS);
+  // Seven days unless the caller says otherwise — the same window the stats
+  // page opens on, so a request with no dates on it answers what the page
+  // would have asked for anyway.
+  let from = parseInstant(query.from, to - 7 * DAY_MS);
 
   if (!(from < to)) {
     const err = new Error('The start of the range has to come before the end');
@@ -203,9 +206,27 @@ function formatBucket(date, unit) {
 
 /* ------------------------------------------------------------- the reports */
 
-/** Every creative in the studio, whether or not it has ever been opened. */
-async function listAssets() {
-  const [templates, timers] = await Promise.all([listTemplateNames(), listTimerNames()]);
+/**
+ * Whose creatives a reader may see.
+ *
+ * `{ all: true }` is the whole studio and belongs to an admin. Everyone else
+ * arrives as `{ createdBy: <their id> }`, and an admin may narrow to one
+ * person the same way — or to `{ createdBy: null }`, the creatives written
+ * before ownership was recorded, which belong to nobody.
+ */
+function libraryFilter(scope) {
+  if (!scope || scope.all) return {};
+  return { createdBy: scope.createdBy };
+}
+
+/** Every creative the reader may see, whether or not it has ever been opened. */
+async function listAssets(scope) {
+  const filter = libraryFilter(scope);
+
+  const [templates, timers] = await Promise.all([
+    listTemplateNames(filter),
+    listTimerNames(filter),
+  ]);
 
   return [
     ...templates.map((row) => ({ ...row, type: 'template' })),
@@ -213,8 +234,56 @@ async function listAssets() {
   ];
 }
 
+/**
+ * The same creatives, in the shape the counter queries filter on — or `null`
+ * for an unscoped read, which asks the database for no restriction at all
+ * rather than for a list of everything.
+ */
+function countedScope(scope, assets) {
+  if (!scope || scope.all) return null;
+  return assets.map((asset) => ({ assetType: asset.type, assetId: asset.id }));
+}
+
 function assetKey(type, id) {
   return `${type}|${id}`;
+}
+
+/**
+ * The same window, rolled up per person.
+ *
+ * This is the "by user" half of what an admin needs: the studio-wide total is
+ * above it, and this says who it is made of. It is derived from the per-asset
+ * rows rather than queried separately, so the two can never disagree.
+ */
+function totalsByUser(rows, windowTotal) {
+  const people = new Map();
+
+  rows.forEach((row) => {
+    const owned = row.createdBy !== null && row.createdBy !== undefined;
+    const key = owned ? String(row.createdBy) : 'none';
+
+    if (!people.has(key)) {
+      people.set(key, {
+        userId: owned ? Number(row.createdBy) : null,
+        // A creative can outlive the account that made it, and one written
+        // before ownership was recorded never had an account to name.
+        name: owned ? row.createdByName || 'Someone who has since left' : 'Unattributed',
+        opens: 0,
+        creatives: 0,
+      });
+    }
+
+    const person = people.get(key);
+    person.opens += row.opens;
+    person.creatives += 1;
+  });
+
+  return Array.from(people.values())
+    .map((person) => ({
+      ...person,
+      share: windowTotal > 0 ? person.opens / windowTotal : 0,
+    }))
+    .sort((a, b) => b.opens - a.opens || a.name.localeCompare(b.name));
 }
 
 /**
@@ -225,14 +294,22 @@ function assetKey(type, id) {
  * nobody opened is the most actionable row on the page, and leaving it out
  * would make it the one thing the page cannot tell you.
  */
-async function overview(range) {
+async function overview(range, scope) {
   const { from, to, previousFrom, previousTo, unit, offsetMinutes } = range;
 
-  const [assets, totals, seriesRows, previous] = await Promise.all([
-    listAssets(),
-    totalsByAsset({ from, to }),
-    openSeries({ from, to, unit, offsetMinutes }),
-    totalOpens({ from: previousFrom, to: previousTo }),
+  /*
+   * The library is read first, because for a scoped reader it *is* the filter:
+   * every counter query below is restricted to the creatives that came back,
+   * so a member's headline, series and comparison are all their own numbers
+   * and never the studio's.
+   */
+  const assets = await listAssets(scope);
+  const counted = countedScope(scope, assets);
+
+  const [totals, seriesRows, previous] = await Promise.all([
+    totalsByAsset({ from, to, assets: counted }),
+    openSeries({ from, to, unit, offsetMinutes, assets: counted }),
+    totalOpens({ from: previousFrom, to: previousTo, assets: counted }),
   ]);
 
   const byAsset = new Map(totals.map((row) => [assetKey(row.assetType, row.assetId), row]));
@@ -246,6 +323,7 @@ async function overview(range) {
       assetType: asset.type,
       assetId: asset.id,
       name: asset.name,
+      createdBy: asset.createdBy,
       createdByName: asset.createdByName,
       opens,
       share: windowTotal > 0 ? opens / windowTotal : 0,
@@ -266,6 +344,7 @@ async function overview(range) {
       assetType: row.assetType,
       assetId: row.assetId,
       name: row.assetId,
+      createdBy: null,
       createdByName: null,
       deleted: true,
       opens: row.opens,
@@ -282,35 +361,54 @@ async function overview(range) {
     unit,
     series: fillSeries(seriesRows, range),
     assets: rows,
+    byUser: totalsByUser(rows, windowTotal),
   };
 }
 
 /** The same window, narrowed to one creative, plus its lifetime figures. */
-async function assetReport(range, assetType, assetId) {
+async function assetReport(range, assetType, assetId, scope) {
   if (!ASSET_TYPES.includes(assetType)) {
     const err = new Error(`Unknown asset type: ${assetType}`);
     err.status = 400;
     throw err;
   }
 
-  const { from, to, previousFrom, previousTo, unit, offsetMinutes } = range;
-  const scope = { assetType, assetId };
-
-  const [total, previous, seriesRows, hours, lifetime, assets] = await Promise.all([
-    totalOpens({ from, to, ...scope }),
-    totalOpens({ from: previousFrom, to: previousTo, ...scope }),
-    openSeries({ from, to, unit, offsetMinutes, ...scope }),
-    openByHourOfDay({ from, to, offsetMinutes, ...scope }),
-    assetLifetime(scope),
-    listAssets(),
-  ]);
-
+  const assets = await listAssets(scope);
   const asset = assets.find((row) => row.type === assetType && row.id === assetId);
+
+  /*
+   * A scoped reader may only ask about their own work, and the check has to
+   * happen here rather than in the overview's filter: this endpoint takes the
+   * creative's id straight from the URL, so without it anyone could read
+   * anyone else's numbers by typing their template id into the address bar.
+   *
+   * A creative that has been deleted is not in anybody's library any more, so
+   * for a scoped reader it reads as not theirs — only an admin, who sees the
+   * whole studio, can still look at what it did.
+   */
+  const scoped = !(!scope || scope.all);
+  if (scoped && !asset) {
+    const err = new Error('That creative is not one of yours');
+    err.status = 403;
+    throw err;
+  }
+
+  const { from, to, previousFrom, previousTo, unit, offsetMinutes } = range;
+  const one = { assetType, assetId };
+
+  const [total, previous, seriesRows, hours, lifetime] = await Promise.all([
+    totalOpens({ from, to, ...one }),
+    totalOpens({ from: previousFrom, to: previousTo, ...one }),
+    openSeries({ from, to, unit, offsetMinutes, ...one }),
+    openByHourOfDay({ from, to, offsetMinutes, ...one }),
+    assetLifetime(one),
+  ]);
 
   return {
     assetType,
     assetId,
     name: asset ? asset.name : assetId,
+    createdBy: asset ? asset.createdBy : null,
     createdByName: asset ? asset.createdByName : null,
     deleted: !asset,
     total,

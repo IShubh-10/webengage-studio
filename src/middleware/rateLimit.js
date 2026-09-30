@@ -22,19 +22,28 @@
  */
 
 const redisState = require('../config/redis').state;
-const { RATE_LIMIT_ENABLED } = require('../config');
+const { RATE_LIMIT_ENABLED, CLIENT_IP_HEADER } = require('../config');
 
 /**
  * The caller's real address.
  *
- * Every request arrives through Render's edge, so the socket address is a
- * proxy for all of them and is useless as an identity. `CF-Connecting-IP` is
- * set by that edge and overwritten on every request, so it cannot be forged
- * from outside; `req.ip` is the fallback and is only meaningful because
- * app.js sets `trust proxy`.
+ * Every request arrives through a proxy, so the socket address is that proxy
+ * for all of them and is useless as an identity. Two things can stand in:
+ *
+ *   - a header the edge writes fresh on every request, which a caller therefore
+ *     cannot forge. Cloudflare's `CF-Connecting-IP` is one; behind a plain
+ *     nginx there is none, and CLIENT_IP_HEADER is set empty so this is skipped
+ *     rather than trusting a name anything can send;
+ *   - `req.ip`, which is only meaningful because app.js sets `trust proxy` —
+ *     and only trustworthy when TRUST_PROXY is the real number of hops.
+ *
+ * Both are configuration for exactly that reason: the right answer changes with
+ * what is in front of the app, and getting it wrong silently turns the limiter
+ * into a per-request bucket that never fills.
  */
 function clientIp(req) {
-  return req.get('cf-connecting-ip') || req.ip || req.socket.remoteAddress || 'unknown';
+  const forwarded = CLIENT_IP_HEADER ? req.get(CLIENT_IP_HEADER) : undefined;
+  return forwarded || req.ip || req.socket.remoteAddress || 'unknown';
 }
 
 /**

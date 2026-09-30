@@ -31,6 +31,252 @@ change itself, not afterwards.
 
 ### Added
 
+- **AWS deployment, with Redis on an instance of its own.** The app moves to two
+  EC2 instances rather than one: the Node server with nginx in front of it on
+  the application instance, and Redis alone on a cache instance reached over the
+  VPC's private network. They want opposite things from a machine — rendering is
+  CPU work on cores the cache would be competing for, and Redis is one mostly
+  idle thread holding a lot of memory — so separating them makes the app's
+  instance type a CPU decision and the cache's a memory decision, each resizable
+  without touching the other. It also makes the cache shareable: a second
+  application joins it with one security group rule.
+
+  - [`scripts/aws/redis-ec2-setup.sh`](scripts/aws/redis-ec2-setup.sh)
+    provisions the cache. It binds to loopback and the instance's private IP
+    only (never `0.0.0.0`), sets `requirepass`, sizes `maxmemory` at three
+    quarters of RAM with `allkeys-lru`, turns on the append-only log so a reboot
+    replays rather than starting cold, applies the three kernel settings Redis
+    warns about at boot (`vm.overcommit_memory`, `net.core.somaxconn`,
+    transparent huge pages off), and disables `KEYS` and `FLUSHALL` — both of
+    which are hazards on a shared instance and neither of which this app uses.
+    Re-running it replaces its managed config block rather than stacking a
+    second copy.
+  - [`scripts/aws/app-ec2-setup.sh`](scripts/aws/app-ec2-setup.sh) installs Node
+    22, nginx and the repository, creates the `webengage` service user and a
+    mode-600 `/etc/webengage-studio.env`, and installs
+    [`webengage-studio.service`](scripts/aws/webengage-studio.service) and
+    [`nginx-webengage-studio.conf`](scripts/aws/nginx-webengage-studio.conf). It
+    starts nothing: the app refuses to boot in production without
+    `SESSION_SECRET`, so starting before the environment is filled in would only
+    produce a crash loop. The unit's `TimeoutStopSec=45` is deliberately longer
+    than the 30 seconds `src/server.js` gives itself to drain, so a deploy never
+    SIGKILLs a worker mid-flush and throws away the last interval of open stats.
+  - [`scripts/aws/deploy.sh`](scripts/aws/deploy.sh) fetches, installs, restarts
+    and then polls `/health` until it answers — dumping the journal if it never
+    does, because a `Type=simple` unit reports success the moment it forks.
+  - The runbook is `documents/deploy-aws.md`: VPC and same-AZ placement, the two
+    security groups (the cache admits the *application's security group* on
+    6379, not a CIDR), sizing, backups, and a table of everything that differs
+    from the Render setup.
+
+- **`REDIS_DB`**, the numbered database this application owns on the shared
+  instance. Redis ships 16 separate keyspaces; giving each application its own
+  means no key can collide, and — the reason it actually matters — the pattern
+  sweeps in `src/lib/redisOps.js` walk only this app's database. `scanDelete`
+  on a shared keyspace is one careless prefix away from deleting another
+  tenant's cache. It does not isolate pub/sub, which is global to the server, so
+  the invalidation channel stays namespaced as `we-studio:invalidate`.
+
+- **`TRUST_PROXY` and `CLIENT_IP_HEADER`** (`src/config/index.js`), because the
+  right answer for both changes with what sits in front of the app and getting
+  either wrong silently disables the per-IP rate limiter. Defaults preserve the
+  current behaviour (`true` and `cf-connecting-ip`); the AWS environment sets
+  `TRUST_PROXY=1` and an empty `CLIENT_IP_HEADER`.
+
+- `REDIS_USERNAME`, `REDIS_TLS`, `REDIS_TLS_INSECURE` and
+  `REDIS_CONNECT_TIMEOUT_MS`, so a cache behind an ACL user or a TLS port is
+  configuration rather than a code change.
+
+### Changed
+
+- **The boot log now says what this process started and what it only connected
+  to.** It used to print a Redis line and a MySQL line interleaved with its own
+  startup messages, which read as though `npm start` had launched a cache and a
+  database. It had not: both run somewhere else — a Homebrew service on a
+  laptop, a separate EC2 instance and a managed MySQL in the deployment — and
+  the log implying otherwise cost real confusion.
+
+  [`src/lib/bootReport.js`](src/lib/bootReport.js) collects the facts and prints
+  one grouped summary when the worker is ready, under two headings that are the
+  whole point: *Started by this process* (env file, HTTP listener, schema) and
+  *Connected to (running elsewhere)* (Redis, MySQL, the OTP campaign).
+  `src/config/env.js`, `src/config/db.js` and `src/config/redis.js` register a
+  line instead of printing their own.
+
+  Failures are deliberately left out of the summary and still print the moment
+  they happen — a warning folded into a tidy block printed afterwards is a
+  warning nobody reads when it matters. The four `✅ … schema ready` lines
+  collapse into one that names the tables, and names any that failed. `✅ Redis
+  connected` is gone from boot; a *later* connect now prints `✅ Redis reachable
+  again`, because a reconnection after an outage is news and a first connection
+  is just the summary repeating itself. Shutdown says `Redis connection closed
+  (the cache itself keeps running)` for the same reason.
+
+- **`src/config/redis.js` is written for a cache that is a network hop away.**
+  The connection now sets a 5 second connect timeout (ioredis waits 10, which is
+  a long time for every worker to discover a wrong security group), TCP
+  keepalive at 30 seconds, and `noDelay`. Keepalive is the one that matters: an
+  idle connection between two instances can be dropped by the network without
+  either end being told, and the next command then hangs until it times out.
+  Boot now logs `🧠 Redis cache at redis://host:port/db` with any password
+  removed, before it connects — so a wrong `REDIS_HOST` is one glance rather
+  than three.
+
+- **`app.set('trust proxy', …)` takes the configured value** instead of a
+  hardcoded `true` ([src/app.js](src/app.js)), and `clientIp()` in
+  [src/middleware/rateLimit.js](src/middleware/rateLimit.js) consults
+  `CLIENT_IP_HEADER` instead of hardcoding `cf-connecting-ip`.
+
+- **`.gitignore` now states the rule it was already following**: the repository
+  holds what is needed to run or deploy the app, and material that is only read
+  stays on the machine it was written on. `documents/` and `migrations/` were
+  already ignored on that basis; added to them are local `.env.*` variants
+  (with `.env.example` explicitly kept), the CA bundle path `DB_SSL_CA` points
+  at, editor state, logs, coverage, database dumps and load-test output.
+
+  One name is called out in the file as one that must never be added, because it
+  looks ignorable and is not: `docs/` is the front end rather than
+  documentation — it carries that name only because GitHub Pages will publish
+  from no other.
+
+- **`scripts/` is now ignored, and its two tracked files were removed from the
+  index** (`git rm -r --cached scripts/`). The provisioning, deploy and
+  load-test scripts name hosts, instance types and account details, and nothing
+  the server does at runtime reads them — they are run by hand from a laptop, so
+  they fall on the "only read" side of the repository rule and stay local. Note
+  that the `scripts/aws/…` links in the AWS deployment entry above therefore
+  point at files that exist on the machine but not in a fresh clone.
+
+### Removed
+
+- **The Render Key Value internal hostname that was hardcoded in
+  `src/config/redis.js`** as a production default. It resolves only inside one
+  Render account's private network, so on any other host the app would have
+  retried a dead name forever instead of reporting itself unconfigured — and the
+  "not configured in production" safety net below it could never fire, because
+  the constant always counted as configuration. Redis is now configured entirely
+  from the environment, everywhere.
+
+### Breaking
+
+- **A production deployment must now set `REDIS_URL`, or `REDIS_HOST` and
+  friends.** Nothing fills the gap any more. A production boot with none of them
+  set logs the in-memory-only warning and runs without a cache: renders and
+  timer lookups stop being shared between workers, and registration OTPs,
+  evergreen timers' first-open timestamps and the logout deny-list have nowhere
+  to live. The existing Render service already sets `REDIS_URL` in its
+  environment and is unaffected.
+
+- **Any deployment behind a single nginx or a load balancer should set
+  `TRUST_PROXY` to the number of proxies in front of it.** The default is still
+  `true`, which means express trusts the whole `X-Forwarded-For` chain and reads
+  its leftmost entry — a value the caller controls. Where that is wrong, the
+  per-IP rate limiter gives every request a fresh bucket and limits nothing.
+
+### Architecture
+
+- Redis stops being "a thing the platform provides next to the app" and becomes
+  a service with an address, a password, a database index and a security group.
+  Everything that follows from that — the endpoint is configuration and never a
+  constant, the connection has a timeout and a keepalive, the keyspace is shared
+  and therefore namespaced — is written down in the header of
+  `src/config/redis.js` rather than only in the deployment notes, because it is
+  the file that breaks when someone forgets.
+
+### Added
+
+- **Every library and every stat is now scoped to whoever is looking.** A
+  member sees the templates and timers they created, and nothing else; an
+  admin sees the whole studio. The rule is the one `canManage` already applied
+  to editing (`src/middleware/guards.js`), extended to reading, and it is
+  enforced in SQL rather than by hiding rows in the browser — a template a
+  member may not see is never sent to them.
+
+  - `GET /api/v1/templates` and `GET /api/v1/timers` narrow on
+    `created_by`. `listTemplates`, `listTemplateNames`, `listTimers` and
+    `listTimerNames` take a `createdBy` option with three distinct cases:
+    `undefined` is no restriction (an admin), a number is that account, and
+    `null` is the rows written before ownership was recorded, which belong to
+    nobody and stay an admin's to sort out.
+  - `GET /api/v1/timers/:timerId` now answers 403 for a timer that is not
+    yours. The library no longer lists other people's timers, so the endpoint
+    must not hand one over either — otherwise the id in the URL was all it
+    took to read a colleague's definition.
+
+- **Folders in both libraries, for admins.** An admin's Templates Library and
+  Timer Library are a folder per person — their own first, then everyone else
+  alphabetically, with the unowned creatives last — each showing what it holds.
+  A member's library is unchanged, a plain grid, because it only ever holds
+  their own work.
+
+  They behave like folders rather than like an accordion: the library shows the
+  folders, opening one *replaces* the grid with that folder's contents, and a
+  crumb bar takes you back out. The tab is drawn in CSS
+  (`.folder-card::before`), overlapping the card's own top border so the two
+  read as one piece of folded card. The whole component — `.folder-grid`,
+  `.folder-card`, `.folder-bar` — lives in `docs/assets/theme.css`, since two
+  pages now use it; it spells out its own colour and hover because a page may
+  style bare `button` for its own controls, as the studio does.
+
+  A folder that disappears underneath you — its last creative deleted, the
+  library reloaded — falls back to the folder list rather than rendering an
+  empty room.
+
+  A `folder` icon joined the shared set in `docs/assets/shell.js`
+  (`window.shellIcon('folder')`), drawn in the house style, and marks the open
+  folder in the crumb bar.
+
+- **Open Stats by person.** For an admin the page carries a "Showing" control:
+  everyone, one member, or the creatives nobody owns. The overview also
+  answers with `byUser` — the same window's total broken down per person,
+  derived from the per-creative rows rather than queried separately, so the
+  two can never disagree.
+
+- **A share donut, with a legend, in place of the "Show the numbers" tables.**
+  On the overview it cuts the window's opens by creative — or, for an admin,
+  by person, via a segmented toggle. On a single creative it cuts them by the
+  days (or hours, or months) of the window itself.
+
+  At most five named slices plus a neutral "Other", with hues assigned in a
+  fixed order and never cycled, because past about six a pie stops being
+  readable. The legend spells out the name, the count and the percentage for
+  every slice, so it doubles as the table the picture cannot be and nothing on
+  the panel depends on telling two colours apart. Hovering either a slice or
+  its legend row recedes the others. Clicking a creative opens its report;
+  clicking a person narrows the page to them.
+
+### Changed
+
+- **Open Stats opens on the last 7 days** instead of the last 30, on the page
+  (`docs/assets/stats.js`, `DEFAULT_RANGE`) and on the server for a request
+  that names no dates (`parseRange` in `src/services/openStats.js`). A week is
+  the span a send is judged over — long enough to have a shape, short enough
+  that yesterday still shows. `?range=` still overrides it, and a link now
+  omits the parameter when it holds the new default.
+
+- A member's stats are counted against their own total, not the studio's, so
+  the headline, the series, the "vs previous period" figure and every
+  percentage are all their own numbers. The scope is resolved in
+  `src/routes/stats.routes.js` and applied in `src/services/openStats.js`; the
+  reader's creatives are read from the library first, and every counter query
+  is restricted to that set.
+
+- `GET /api/v1/stats/asset/:assetType/:assetId` answers **403** when the
+  creative is not one of yours. It takes an id straight from the URL, so
+  without the check anyone could read anyone else's numbers by typing a
+  template id into the address bar. A deleted creative is readable only by an
+  admin — it is in nobody's library any more, so nobody else can show it was
+  theirs.
+
+- The template list cache is now one Redis entry per reader —
+  `templates_list_v3:all` for an admin, `templates_list_v3:u<id>` for a member
+  — replacing the single shared `templates_all_v2`. A shared entry would have
+  handed the first caller's library to everybody else for its five-minute TTL.
+  Saving or deleting a template SCAN-deletes the whole prefix, so an admin's
+  view of the studio goes stale exactly when the owner's own list does.
+
+### Added
+
 - **Layer rotation, for vertical and diagonal creatives.** Every text and image
   layer now carries a `rotation` in degrees. There is deliberately no field for
   it in the left panel: the only control is the round grip on a stalk above the

@@ -11,6 +11,23 @@
     <link rel="stylesheet" href="assets/theme.css" />
     <link rel="stylesheet" href="assets/shell.css" />
     <style>
+        /* Categorical slots for the share donut, assigned in this fixed order
+           and never cycled: a sixth category folds into "Other" rather than
+           inventing a hue. The order is the studio's data-viz palette as
+           documented — adjacent pairs are separable both in normal vision and
+           under the common colour-vision deficiencies — and "Other" is
+           deliberately a neutral, because it is a remainder rather than a
+           thing. Three of these sit below 3:1 against white, which is why the
+           legend always spells out the name, the count and the share. */
+        :root {
+            --series-1: #2a78d6;
+            --series-2: #eb6834;
+            --series-3: #1baf7a;
+            --series-4: #eda100;
+            --series-5: #e87ba4;
+            --series-other: #94a3b8;
+        }
+
         main {
             padding: 24px 24px 56px;
             max-width: 1180px;
@@ -286,28 +303,199 @@
             font-weight: 700;
         }
 
-        /* The numbers behind the picture, for anyone the picture does not
-           serve — a screen reader, a print-out, a copy-paste into a deck. */
-        .numbers {
-            border-top: 1px solid var(--border-color);
+        /* The share donut ------------------------------------------------
+
+           Part-to-whole at a glance, and the legend beside it is also the
+           table the picture cannot be: a name, a count and a percentage in
+           plain text for every slice, so nothing here is carried by colour
+           alone. At most five slices plus "Other" — past that the slices are
+           too thin to compare and the hues start to blur into each other. */
+        .pie-wrap {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 26px;
+            padding: 10px 18px 20px;
         }
 
-        .numbers summary {
-            padding: 10px 18px;
+        /* The empty state takes the whole panel rather than sitting where the
+           circle would have been. */
+        .pie-wrap .chart-empty {
+            flex: 1;
+            padding: 30px 0;
+        }
+
+        .pie-figure {
+            position: relative;
+            flex: 0 0 auto;
+            width: 212px;
+        }
+
+        .pie-figure svg {
+            display: block;
+            width: 100%;
+            overflow: visible;
+        }
+
+        /* The 2px surface gap between neighbouring slices, drawn as a stroke
+           in the panel's own colour rather than as a real gap in the arc. */
+        .pie-slice {
+            stroke: var(--panel-bg);
+            stroke-width: 2;
+            transition: opacity 0.12s ease;
+        }
+
+        /* Hovering one slice or its legend row recedes the others rather than
+           colouring the hovered one differently — identity stays put. */
+        .pie-wrap.picking .pie-slice {
+            opacity: 0.3;
+        }
+
+        .pie-wrap.picking .pie-slice.on {
+            opacity: 1;
+        }
+
+        .pie-total {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            transform: translateY(-50%);
+            pointer-events: none;
+        }
+
+        .pie-total .value {
+            font-size: 26px;
+            font-weight: 700;
+            line-height: 1.1;
+            letter-spacing: -0.5px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .pie-total .label {
+            margin-top: 2px;
+            font-size: 8px;
+            color: var(--text-muted);
+        }
+
+        .pie-legend {
+            flex: 1 1 280px;
+            min-width: 230px;
+        }
+
+        .legend-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 7px 9px;
+            border: none;
+            border-radius: var(--radius-sm);
+            background: transparent;
+            font-family: inherit;
+            font-size: 12.5px;
+            text-align: left;
+            color: var(--text-main);
+        }
+
+        .legend-row.clickable {
+            cursor: pointer;
+        }
+
+        .legend-row.clickable:hover,
+        .legend-row.on {
+            background: var(--panel-alt);
+        }
+
+        .legend-swatch {
+            width: 11px;
+            height: 11px;
+            flex: 0 0 auto;
+            border-radius: 3px;
+        }
+
+        .legend-name {
+            flex: 1;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+
+        .legend-sub {
+            color: var(--text-faint);
+        }
+
+        .legend-value {
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .legend-share {
+            width: 46px;
+            text-align: right;
+            color: var(--text-muted);
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Segmented control, for the two ways an admin can slice the donut */
+        .seg {
+            display: inline-flex;
+            gap: 2px;
+            padding: 3px;
+            background: var(--panel-alt);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-pill);
+        }
+
+        .seg button {
+            padding: 5px 12px;
+            border: none;
+            border-radius: var(--radius-pill);
+            background: transparent;
+            font-family: inherit;
             font-size: 12px;
             font-weight: 600;
+            line-height: 1;
             color: var(--text-muted);
             cursor: pointer;
         }
 
-        .numbers summary:hover {
-            color: var(--primary);
+        .seg button.active {
+            background: var(--panel-bg);
+            color: var(--text-main);
+            box-shadow: var(--shadow-card);
         }
 
-        .numbers .scroll {
-            max-height: 260px;
-            overflow: auto;
-            border-top: 1px solid var(--border-color);
+        /* Whose numbers these are. Only an admin sees it — for everybody else
+           the page is their own work and there is nothing to choose. */
+        .scope-pick {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            padding-right: 12px;
+            margin-right: 2px;
+            border-right: 1px solid var(--border-color);
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 0;
+        }
+
+        .scope-pick.visible {
+            display: inline-flex;
+        }
+
+        .scope-pick select {
+            width: auto;
+            max-width: 220px;
+            padding: 6px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-pill);
+            background: #ffffff;
+            color: var(--text-main);
+            font-family: inherit;
+            font-size: 12.5px;
+            font-weight: 600;
         }
 
         /* Tables --------------------------------------------------------- */
@@ -498,9 +686,15 @@
                 </div>
 
                 <div class="range-bar" id="rangeBar">
+                    <label class="scope-pick" id="scopePick">
+                        <span>Showing</span>
+                        <select id="userFilter">
+                            <option value="all">Everyone</option>
+                        </select>
+                    </label>
                     <button class="range-btn" data-range="today" type="button">Today</button>
-                    <button class="range-btn" data-range="last7" type="button">Last 7 days</button>
-                    <button class="range-btn active" data-range="last30" type="button">Last 30 days</button>
+                    <button class="range-btn active" data-range="last7" type="button">Last 7 days</button>
+                    <button class="range-btn" data-range="last30" type="button">Last 30 days</button>
                     <button class="range-btn" data-range="thisMonth" type="button">This month</button>
                     <button class="range-btn" data-range="lastMonth" type="button">Last month</button>
                     <button class="range-btn" data-range="thisYear" type="button">This year</button>
@@ -531,10 +725,17 @@
                             <span class="hint" id="overviewChartHint"></span>
                         </div>
                         <div class="chart-wrap" id="overviewChart"></div>
-                        <details class="numbers">
-                            <summary>Show the numbers</summary>
-                            <div class="scroll" id="overviewNumbers"></div>
-                        </details>
+                    </section>
+
+                    <section class="panel">
+                        <div class="panel-head">
+                            <h3>Share of opens</h3>
+                            <div class="seg" id="shareModes" style="display: none;">
+                                <button type="button" class="active" data-mode="creative">By creative</button>
+                                <button type="button" data-mode="user">By user</button>
+                            </div>
+                        </div>
+                        <div class="pie-wrap" id="overviewPie"></div>
                     </section>
 
                     <section class="panel">
@@ -581,19 +782,25 @@
                             <span class="hint" id="detailChartHint"></span>
                         </div>
                         <div class="chart-wrap" id="detailChart"></div>
-                        <details class="numbers">
-                            <summary>Show the numbers</summary>
-                            <div class="scroll" id="detailNumbers"></div>
-                        </details>
                     </section>
 
-                    <section class="panel">
-                        <div class="panel-head">
-                            <h3>When it gets opened</h3>
-                            <span class="hint">Opens by hour of your day, across the whole window</span>
-                        </div>
-                        <div class="chart-wrap" id="hourChart"></div>
-                    </section>
+                    <div class="two-up">
+                        <section class="panel">
+                            <div class="panel-head">
+                                <h3>Share of opens</h3>
+                                <span class="hint" id="detailPieHint"></span>
+                            </div>
+                            <div class="pie-wrap" id="detailPie"></div>
+                        </section>
+
+                        <section class="panel">
+                            <div class="panel-head">
+                                <h3>When it gets opened</h3>
+                                <span class="hint">Opens by hour of your day</span>
+                            </div>
+                            <div class="chart-wrap" id="hourChart"></div>
+                        </section>
+                    </div>
                 </div>
             </main>
         </div>

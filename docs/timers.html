@@ -969,11 +969,14 @@
                         <div class="library-head">
                             <div>
                                 <h2>Timer Library</h2>
-                                <p class="hint">Every saved countdown. Copy a URL straight into a campaign.</p>
+                                <p class="hint" id="libraryLead">The countdowns you have saved. Copy a URL
+                                    straight into a campaign.</p>
                             </div>
                             <button class="btn" id="reloadLibraryBtn" type="button">Reload</button>
                         </div>
-                        <div class="timer-grid" id="timerGrid"></div>
+                        <!-- Holds either the folder grid or the cards themselves,
+                             so the grid that lays each of them out is inside it -->
+                        <div id="timerGrid"></div>
                         <div class="empty-state" id="libraryEmpty" style="display: none;">
                             No timers yet. Build one in the Timer Builder.
                         </div>
